@@ -1,0 +1,104 @@
+# Target Python: 3.11.9
+
+# =========================
+# Core Backend
+# =========================
+fastapi
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+python-dotenv
+
+# =========================
+# LangChain / LangGraph
+# =========================
+langchain
+langchain-core
+langchain-community
+langgraph
+
+# =========================
+# Vector Database
+# =========================
+qdrant-client
+
+# =========================
+# Embeddings & Reranking
+# =========================
+sentence-transformers
+transformers
+torch
+
+# =========================
+# LLM Providers
+# =========================
+google-generativeai
+groq
+
+# =========================
+# Database & Memory
+# =========================
+sqlalchemy
+psycopg2-binary
+redis
+
+# =========================
+# Async Tasks
+# =========================
+celery
+
+# =========================
+# Search / Retrieval
+# =========================
+rank-bm25
+numpy
+scikit-learn
+
+# =========================
+# Document Processing
+# =========================
+pypdf
+pdfplumber
+python-docx
+pandas
+openpyxl
+
+# =========================
+# OCR
+# =========================
+paddleocr
+paddlepaddle
+
+# =========================
+# Audio / Speech
+# =========================
+gtts
+pydub
+
+# =========================
+# API Requests
+# =========================
+requests
+httpx
+
+# =========================
+# Monitoring & Evaluation
+# =========================
+langfuse
+ragas
+
+# =========================
+# Utilities
+# =========================
+tqdm
+orjson
+aiofiles
+tenacity
+
+# =========================
+# Optional Dev Tools
+# =========================
+pytest
+black
+isort
