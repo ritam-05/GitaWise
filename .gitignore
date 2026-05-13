@@ -47,7 +47,7 @@ env/
 *.ipynb_checkpoints
 
 # Generated data files
-enriched_gita.csv
+# enriched_gita.csv
 *.json
 *.pyc
 
