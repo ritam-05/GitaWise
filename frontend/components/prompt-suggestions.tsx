@@ -4,7 +4,6 @@ const prompts = [
   "How do I act without attachment?",
   "What does the Gita say about fear?",
   "Explain dharma in a practical way",
-  "How can I steady my mind?",
 ];
 
 export function PromptSuggestions() {

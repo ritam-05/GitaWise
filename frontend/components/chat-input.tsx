@@ -46,7 +46,7 @@ export function ChatInput({
         placeholder="Ask about duty, doubt, peace, grief, action..."
         className={cn(
           "border-0 bg-surface px-3 py-3 shadow-none focus:ring-0",
-          compact ? "min-h-[60px] text-sm" : "min-h-[112px]",
+          compact ? "min-h-[60px] text-sm" : "min-h-[92px]",
         )}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {

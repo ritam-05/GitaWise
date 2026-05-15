@@ -20,6 +20,7 @@
   --muted: #7a6553;
   --border: rgba(59, 42, 31, 0.08);
   --accent: #8b5e3c;
+  --line-art: rgba(59, 42, 31, 0.75);
   --selection: rgba(59, 42, 31, 0.16);
   --scrollbar: rgba(59, 42, 31, 0.18);
   background: var(--background);
@@ -37,6 +38,7 @@
   --muted: #8a8175;
   --border: rgba(255, 255, 255, 0.08);
   --accent: #c49a6c;
+  --line-art: rgba(245, 241, 234, 0.7);
   --selection: rgba(245, 241, 234, 0.16);
   --scrollbar: rgba(245, 241, 234, 0.16);
 }
