@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Menu } from "lucide-react";
-import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const menuItems = ["Settings", "Today's Philosophy", "Read Verses", "Disclaimer"];
@@ -34,8 +33,7 @@ export function TopNav() {
   }, []);
 
   return (
-    <header className="flex w-full items-center justify-between px-4 py-4 sm:px-6">
-      <Brand />
+    <header className="flex w-full items-center justify-end px-4 py-4 sm:px-6">
       <div className="flex items-center gap-2">
         <ThemeToggle />
         <div ref={menuRef} className="relative">

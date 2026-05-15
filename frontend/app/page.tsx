@@ -19,8 +19,8 @@ export default function HomePage() {
             <p className="text-sm font-medium uppercase tracking-[0.16em] text-muted">
               Bhagavad Gita assistant
             </p>
-            <h1 className="text-3xl font-medium tracking-normal text-foreground sm:text-4xl">
-              GitaWise
+            <h1 className="font-goudy text-4xl font-medium tracking-normal text-foreground sm:text-5xl">
+              Gita-Wise
             </h1>
             <p className="mx-auto max-w-xl text-base leading-7 text-secondary">
               Ask a question about action, duty, fear, attention, or peace.

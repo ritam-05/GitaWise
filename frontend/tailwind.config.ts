@@ -22,7 +22,7 @@ const config: Config = {
         accent: "var(--accent)",
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "Inter", "sans-serif"],
+        sans: ["Calisto MT", "Book Antiqua", "Georgia", "serif"],
         mono: ["var(--font-geist-mono)", "monospace"],
       },
     },

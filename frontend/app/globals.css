@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: "Calisto MT";
+  src: local("Calisto MT"), local("CalistoMT");
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
   --background: #dcc6a1;
@@ -50,6 +56,7 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--text-primary);
+  font-size: 17px;
   font-feature-settings: "rlig" 1, "calt" 1;
   text-rendering: optimizeLegibility;
   transition:
@@ -70,6 +77,15 @@ input {
 
 textarea {
   resize: none;
+}
+
+.font-goudy {
+  font-family:
+    "Goudy Old Style BT",
+    "Goudy Old Style",
+    Garamond,
+    Georgia,
+    serif;
 }
 
 .subtle-scrollbar {
