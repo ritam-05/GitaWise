@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: #dcc6a1;
+  --surface: #e6d3b3;
+  --panel: #f0e3cc;
+  --input: #e6d3b3;
+  --card: #e8d8bc;
+  --text-primary: #3b2a1f;
+  --text-secondary: #5c4635;
+  --muted: #7a6553;
+  --border: rgba(59, 42, 31, 0.08);
+  --accent: #8b5e3c;
+  --selection: rgba(59, 42, 31, 0.16);
+  --scrollbar: rgba(59, 42, 31, 0.18);
+  background: var(--background);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #111111;
+  --surface: #171717;
+  --panel: #1c1c1c;
+  --input: #1c1c1c;
+  --card: #202020;
+  --text-primary: #f5f1ea;
+  --text-secondary: #b7b0a6;
+  --muted: #8a8175;
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #c49a6c;
+  --selection: rgba(245, 241, 234, 0.16);
+  --scrollbar: rgba(245, 241, 234, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font-feature-settings: "rlig" 1, "calt" 1;
+  text-rendering: optimizeLegibility;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--text-primary);
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+textarea {
+  resize: none;
+}
+
+.subtle-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.subtle-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.subtle-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 999px;
+}

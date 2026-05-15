@@ -47,7 +47,7 @@ env/
 *.ipynb_checkpoints
 
 # Generated data files
-# enriched_gita.csv
+datasets/
 *.json
 *.pyc
 
@@ -66,4 +66,5 @@ Thumbs.db
 
 # Node modules (if applicable)
 node_modules/
+frontend/.next/
 npm-debug.log
