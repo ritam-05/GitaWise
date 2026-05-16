@@ -121,6 +121,7 @@ def build_payload(metadata: dict[str, Any]) -> dict[str, Any]:
         "id": metadata.get("ID", ""),
         "chapter": int(metadata.get("Chapter", 0)),
         "verse": int(metadata.get("Verse", 0)),
+        "speaker": metadata.get("Speaker", ""),
         "topics": split_tags(metadata.get("Topics", "")),
         "emotion_tags": split_tags(metadata.get("EmotionTags", "")),
         "summary": metadata.get("Summary", ""),

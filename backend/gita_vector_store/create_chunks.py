@@ -20,6 +20,7 @@ REQUIRED_COLUMNS = [
     "ID",
     "Chapter",
     "Verse",
+    "Speaker",
     "Shloka",
     "Transliteration",
     "HinMeaning",
@@ -55,6 +56,7 @@ def build_retrieval_text(row: pd.Series) -> str:
     return (
         f"Chapter: {row['Chapter']}\n"
         f"Verse: {row['Verse']}\n\n"
+        f"Speaker:\n{row['Speaker']}\n\n"
         f"Shloka:\n{row['Shloka']}\n\n"
         f"Transliteration:\n{row['Transliteration']}\n\n"
         f"English Meaning:\n{row['EngMeaning']}\n\n"
