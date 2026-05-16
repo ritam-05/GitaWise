@@ -30,6 +30,7 @@ qdrant-client
 sentence-transformers
 transformers
 torch
+FlagEmbedding
 
 # =========================
 # LLM Providers
