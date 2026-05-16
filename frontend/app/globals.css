@@ -90,6 +90,16 @@ textarea {
     serif;
 }
 
+.hero-line-art {
+  filter: brightness(0) saturate(100%) sepia(20%) saturate(900%)
+    hue-rotate(343deg) brightness(54%);
+}
+
+.dark .hero-line-art {
+  filter: brightness(0) invert(92%) sepia(13%) saturate(315%)
+    hue-rotate(349deg) brightness(104%);
+}
+
 .subtle-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar) transparent;
