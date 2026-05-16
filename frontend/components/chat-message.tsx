@@ -1,3 +1,6 @@
+ "use client";
+
+import { motion } from "framer-motion";
 import { CitationCard } from "@/components/citation-card";
 import { cn } from "@/lib/utils";
 
@@ -19,35 +22,31 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
   const isUser = role === "user";
 
   return (
-    <section
-      className={cn(
-        "flex w-full",
-        isUser ? "justify-end" : "justify-start",
-      )}
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: "easeOut" }}
+      className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
     >
       <div
         className={cn(
-          "max-w-[760px]",
           isUser
-            ? "rounded-2xl border border-border bg-panel px-5 py-4"
-            : "space-y-5",
+            ? "max-w-[60%] rounded-2xl bg-surface/60 px-4 py-2.5"
+            : "w-full space-y-3",
         )}
       >
-        {!isUser && (
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted">
-            GitaWise
-          </p>
-        )}
-        <p
+        <div
           className={cn(
-            "whitespace-pre-wrap text-[15px] leading-7 tracking-normal",
-            isUser ? "text-foreground" : "text-foreground",
+            "whitespace-pre-wrap",
+            isUser
+              ? "text-sm leading-6 text-foreground"
+              : "text-[15px] leading-[1.65] text-foreground",
           )}
         >
           {content}
-        </p>
-        {citations.length > 0 && (
-          <div className="grid gap-3 pt-1">
+        </div>
+        {!isUser && citations.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
             {citations.map((citation) => (
               <CitationCard
                 key={`${citation.chapter}-${citation.verse}`}
@@ -57,6 +56,6 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
           </div>
         )}
       </div>
-    </section>
+    </motion.section>
   );
 }

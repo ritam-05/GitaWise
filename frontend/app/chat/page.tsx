@@ -1,87 +1,116 @@
-import { Suspense } from "react";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessage, type Citation } from "@/components/chat-message";
 import { Sidebar } from "@/components/sidebar";
-import { Brand } from "@/components/brand";
+import { fetchQueryAnswer } from "@/lib/api";
 
-const sampleCitations: Citation[] = [
-  {
-    chapter: 2,
-    verse: 47,
-    shloka: "कर्मण्येवाधिकारस्ते मा फलेषु कदाचन ।",
-    meaning:
-      "You have a right to perform your prescribed duties, but you are not entitled to the fruits of your actions.",
-    tags: ["action", "detachment", "discipline"],
-  },
-  {
-    chapter: 2,
-    verse: 48,
-    shloka: "योगस्थः कुरु कर्माणि सङ्गं त्यक्त्वा धनञ्जय ।",
-    meaning:
-      "Established in yoga, perform your actions, abandoning attachment and remaining even-minded in success and failure.",
-    tags: ["equanimity", "yoga", "steadiness"],
-  },
-];
+type Message = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: Citation[];
+};
 
-function ChatContent({
-  question,
-}: {
-  question: string;
-}) {
+export default function ChatPage() {
+  const searchParams = useSearchParams();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const hasInitialized = useRef(false);
+
+  // Initialize with URL search param on mount (only once)
+  useEffect(() => {
+    if (hasInitialized.current) return;
+
+    const question = searchParams?.get("q")?.trim();
+    if (question) {
+      hasInitialized.current = true;
+      handleSubmit(question);
+    }
+  }, []);
+
+  const handleSubmit = async (query: string) => {
+    // Add user message
+    setMessages((prev) => [...prev, { role: "user", content: query }]);
+    setIsLoading(true);
+
+    try {
+      const result = await fetchQueryAnswer(query);
+      const citations = result.contexts.map((context) => ({
+        chapter: context.chapter,
+        verse: context.verse,
+        shloka: context.shloka,
+        meaning: context.translation || context.interpretation,
+        tags: context.topics,
+      }));
+
+      // Add assistant message
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: result.answer,
+          citations: citations,
+        },
+      ]);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? `Backend connection issue: ${error.message}`
+          : "Backend connection issue.";
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: errorMessage,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex min-h-screen flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-border bg-background px-5 py-4">
-          <div className="mx-auto flex max-w-4xl items-center justify-between">
-            <div className="lg:hidden">
-              <Brand />
-            </div>
-            <p className="hidden text-sm text-muted lg:block">
-              GitaWise answers should remain grounded in cited verses.
-            </p>
-            <span className="rounded-full border border-border px-3 py-1 text-xs text-muted">
-              BGE-M3 ready
-            </span>
-          </div>
-        </header>
-
-        <div className="subtle-scrollbar flex-1 overflow-y-auto px-5 py-8">
-          <div className="mx-auto w-full max-w-4xl space-y-10">
-            <ChatMessage role="user" content={question} />
-            <ChatMessage
-              role="assistant"
-              content={
-                "The Gita frames detached action as a discipline of attention, not indifference. You still act carefully, ethically, and with full effort, but you stop making inner stability depend on the outcome. The work remains yours; the result is shaped by conditions beyond the self."
-              }
-              citations={sampleCitations}
-            />
+        <div className="subtle-scrollbar flex-1 overflow-y-auto px-0 py-10">
+          <div className="mx-auto w-full max-w-[60vw] space-y-6">
+            {messages.length === 0 ? (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-center text-muted">
+                  Ask me anything about the Bhagavad Gita...
+                </p>
+              </div>
+            ) : (
+              messages.map((message, index) => (
+                <ChatMessage
+                  key={index}
+                  role={message.role}
+                  content={message.content}
+                  citations={message.citations}
+                />
+              ))
+            )}
+            {isLoading && (
+              <ChatMessage
+                role="assistant"
+                content="Thinking..."
+                citations={[]}
+              />
+            )}
           </div>
         </div>
 
-        <div className="border-t border-border bg-background px-5 py-4">
-          <div className="mx-auto max-w-4xl">
-            <ChatInput compact initialValue="" />
+        <div className="sticky bottom-0 bg-background/86 px-0 py-5 backdrop-blur-xl">
+          <div className="mx-auto w-full max-w-[60vw]">
+            <ChatInput compact onSubmit={handleSubmit} disabled={isLoading} />
           </div>
         </div>
       </main>
     </div>
-  );
-}
-
-export default async function ChatPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ q?: string }>;
-}) {
-  const params = await searchParams;
-  const question =
-    params?.q?.trim() ||
-    "How can I act sincerely without becoming attached to the result?";
-
-  return (
-    <Suspense>
-      <ChatContent question={question} />
-    </Suspense>
   );
 }

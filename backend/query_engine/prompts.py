@@ -447,21 +447,19 @@ Structure responses naturally:
 1. Brief understanding of the philosophical/emotional struggle
 2. Unified explanation synthesized from retrieved teachings
 3. Calm reflective takeaway
-4. Referenced verses section
+
+Do NOT include a "Referenced Verses" section in your answer - verses are shown separately as citations.
 
 ==================================================
 CITATION RULES
 ==================================================
 
-At the end ALWAYS include:
-
-Referenced Verses:
-- Bhagavad Gita X.Y
-- Bhagavad Gita X.Y
+Citations are handled separately by the system and displayed to the user.
+Focus your answer on the philosophical content only.
 
 Rules:
-- cite ONLY verses actually used
-- avoid excessive citations
+- cite ONLY verses actually used in your reasoning
+- avoid excessive citations in the answer text
 - avoid inline citation overload
 - no fake references
 

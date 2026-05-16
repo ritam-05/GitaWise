@@ -11,12 +11,16 @@ type ChatInputProps = {
   compact?: boolean;
   initialValue?: string;
   className?: string;
+  onSubmit?: (query: string) => void;
+  disabled?: boolean;
 };
 
 export function ChatInput({
   compact = false,
   initialValue = "",
   className,
+  onSubmit: onSubmitProp,
+  disabled = false,
 }: ChatInputProps) {
   const [value, setValue] = useState(initialValue);
   const router = useRouter();
@@ -29,52 +33,58 @@ export function ChatInput({
       return;
     }
 
-    router.push(`/chat?q=${encodeURIComponent(query)}`);
+    // If onSubmit callback is provided, use it (for conversation state)
+    if (onSubmitProp) {
+      onSubmitProp(query);
+      setValue("");
+    } else {
+      // Otherwise fall back to URL navigation
+      router.push(`/chat?q=${encodeURIComponent(query)}`);
+    }
   }
 
   return (
     <form
       onSubmit={handleSubmit}
       className={cn(
-        "rounded-3xl border border-border bg-surface p-2 shadow-none transition-colors",
+        "flex items-end gap-2 rounded-2xl bg-surface p-2.5 shadow-none transition-colors",
+        disabled && "opacity-60 pointer-events-none",
         className,
       )}
     >
+      <button
+        type="button"
+        disabled={disabled}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-surface/60 hover:text-secondary transition disabled:opacity-50"
+        aria-label="Attachment"
+      >
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+      </button>
       <Textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="Ask about duty, doubt, peace, grief, action..."
-        className={cn(
-          "border-0 bg-surface px-3 py-3 shadow-none focus:ring-0",
-          compact ? "min-h-[60px] text-sm" : "min-h-[92px]",
-        )}
+        placeholder="Ask about dharma, action, wisdom…"
+        disabled={disabled}
+        className="flex-1 border-0 bg-transparent px-0 py-2 text-sm shadow-none focus:ring-0 placeholder:text-muted placeholder:opacity-50 disabled:opacity-50"
+        style={{ minHeight: "36px", maxHeight: "120px" }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !disabled) {
             event.currentTarget.form?.requestSubmit();
           }
         }}
       />
-      <div className="flex items-center justify-between gap-3 rounded-2xl bg-surface px-2 pb-1 transition-colors">
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Grounded in verse citations</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1 text-xs text-muted sm:inline-flex">
-            <CornerDownLeft className="h-3 w-3" aria-hidden="true" />
-            Ctrl Enter
-          </span>
-          <Button
-            type="submit"
-            size="icon"
-            variant="primary"
-            aria-label="Send message"
-            disabled={!value.trim()}
-          >
-            <ArrowUp className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
+      <Button
+        type="submit"
+        size="icon"
+        variant="primary"
+        aria-label="Send message"
+        disabled={!value.trim() || disabled}
+        className="h-8 w-8 rounded-full flex-shrink-0"
+      >
+        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+      </Button>
     </form>
   );
 }
