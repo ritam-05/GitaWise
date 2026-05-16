@@ -11,29 +11,17 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATASET_DIR = PROJECT_ROOT / "datasets"
-INPUT_PATH = DATASET_DIR / "gita_chunks.csv"
-EMBEDDINGS_PATH = DATASET_DIR / "gita_embeddings.npy"
-METADATA_PATH = DATASET_DIR / "gita_metadata.pkl"
-
-MODEL_NAME = "BAAI/bge-large-en-v1.5"
-BATCH_SIZE = 32
-
-REQUIRED_COLUMNS = [
-    "ID",
-    "Chapter",
-    "Verse",
-    "Speaker",
-    "retrieval_text",
-    "Topics",
-    "EmotionTags",
-    "Summary",
-    "Shloka",
-    "EngMeaning",
-    "Interpretation",
-]
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config import (
+    GITA_CHUNKS_CSV,
+    GITA_EMBEDDINGS_NPY,
+    GITA_METADATA_PKL,
+    EMBEDDING_MODEL_NAME,
+    EMBEDDING_BATCH_SIZE,
+    REQUIRED_EMBEDDING_COLUMNS,
+    CSV_ENCODING,
+)
 
 
 def load_chunks(path: Path) -> pd.DataFrame:
@@ -43,12 +31,12 @@ def load_chunks(path: Path) -> pd.DataFrame:
             f"Chunk file not found: {path}. Run create_chunks.py first."
         )
 
-    return pd.read_csv(path, encoding="utf-8-sig").fillna("")
+    return pd.read_csv(path, encoding=CSV_ENCODING).fillna("")
 
 
 def validate_schema(df: pd.DataFrame) -> None:
     """Ensure every embedding and metadata field exists."""
-    missing_columns = [column for column in REQUIRED_COLUMNS if column not in df.columns]
+    missing_columns = [column for column in REQUIRED_EMBEDDING_COLUMNS if column not in df.columns]
     if missing_columns:
         raise ValueError(
             "Chunk dataset is missing required columns: "
@@ -56,7 +44,7 @@ def validate_schema(df: pd.DataFrame) -> None:
         )
 
 
-def load_embedding_model(model_name: str = MODEL_NAME) -> SentenceTransformer:
+def load_embedding_model(model_name: str = EMBEDDING_MODEL_NAME) -> SentenceTransformer:
     """Load the sentence-transformers model."""
     print(f"Loading embedding model: {model_name}")
     return SentenceTransformer(model_name)
@@ -65,7 +53,7 @@ def load_embedding_model(model_name: str = MODEL_NAME) -> SentenceTransformer:
 def generate_embeddings(
     texts: list[str],
     model: SentenceTransformer,
-    batch_size: int = BATCH_SIZE,
+    batch_size: int = EMBEDDING_BATCH_SIZE,
 ) -> np.ndarray:
     """Generate L2-normalized embeddings in batches."""
     if not texts:
@@ -120,7 +108,7 @@ def save_metadata(metadata: list[dict[str, Any]], path: Path) -> None:
 
 def main() -> None:
     """Run the embedding generation pipeline."""
-    df = load_chunks(INPUT_PATH)
+    df = load_chunks(GITA_CHUNKS_CSV)
     validate_schema(df)
 
     texts = df["retrieval_text"].astype(str).str.strip().tolist()
@@ -136,13 +124,13 @@ def main() -> None:
             f"Embedding count ({len(embeddings)}) does not match metadata count ({len(metadata)})."
         )
 
-    save_embeddings(embeddings, EMBEDDINGS_PATH)
-    save_metadata(metadata, METADATA_PATH)
+    save_embeddings(embeddings, GITA_EMBEDDINGS_NPY)
+    save_metadata(metadata, GITA_METADATA_PKL)
 
     print(f"Embedding dimension: {embeddings.shape[1]}")
     print(f"Total vectors generated: {embeddings.shape[0]}")
-    print(f"Embeddings saved to: {EMBEDDINGS_PATH}")
-    print(f"Metadata saved to: {METADATA_PATH}")
+    print(f"Embeddings saved to: {GITA_EMBEDDINGS_NPY}")
+    print(f"Metadata saved to: {GITA_METADATA_PKL}")
 
 
 if __name__ == "__main__":

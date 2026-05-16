@@ -21,22 +21,24 @@ except ModuleNotFoundError as exc:
         "that runs this script with: python -m pip install qdrant-client"
     ) from exc
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATASET_DIR = PROJECT_ROOT / "datasets"
-EMBEDDINGS_PATH = DATASET_DIR / "gita_embeddings.npy"
-METADATA_PATH = DATASET_DIR / "gita_metadata.pkl"
-
-COLLECTION_NAME = "gita_verses"
-UPLOAD_BATCH_SIZE = 64
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config import (
+    PROJECT_ROOT,
+    GITA_EMBEDDINGS_NPY,
+    GITA_METADATA_PKL,
+    QDRANT_COLLECTION_NAME,
+    QDRANT_UPLOAD_BATCH_SIZE,
+    QDRANT_API_KEY,
+    QDRANT_ENDPOINT,
+    QDRANT_TIMEOUT,
+)
 
 
 def load_environment() -> tuple[str, str]:
     """Load Qdrant credentials from .env."""
-    load_dotenv(PROJECT_ROOT / ".env")
-
-    api_key = os.getenv("QDRANT_API_KEY")
-    endpoint = os.getenv("QDRANT_ENDPOINT")
+    api_key = QDRANT_API_KEY
+    endpoint = QDRANT_ENDPOINT
 
     if not api_key:
         raise ValueError("QDRANT_API_KEY is missing from environment variables.")
@@ -78,7 +80,7 @@ def load_metadata(path: Path) -> list[dict[str, Any]]:
 
 def create_qdrant_client(endpoint: str, api_key: str) -> QdrantClient:
     """Create a Qdrant client for the configured cloud/local endpoint."""
-    return QdrantClient(url=endpoint, api_key=api_key, timeout=60)
+    return QdrantClient(url=endpoint, api_key=api_key, timeout=QDRANT_TIMEOUT)
 
 
 def recreate_collection(
@@ -166,7 +168,7 @@ def upload_points(
     client: QdrantClient,
     collection_name: str,
     points: list[models.PointStruct],
-    batch_size: int = UPLOAD_BATCH_SIZE,
+    batch_size: int = QDRANT_UPLOAD_BATCH_SIZE,
 ) -> int:
     """Upload points to Qdrant in batches."""
     uploaded = 0
@@ -183,18 +185,18 @@ def main() -> None:
     """Run the Qdrant upload pipeline."""
     try:
         endpoint, api_key = load_environment()
-        embeddings = load_embeddings(EMBEDDINGS_PATH)
-        metadata = load_metadata(METADATA_PATH)
+        embeddings = load_embeddings(GITA_EMBEDDINGS_NPY)
+        metadata = load_metadata(GITA_METADATA_PKL)
 
         vector_size = embeddings.shape[1]
         client = create_qdrant_client(endpoint, api_key)
 
-        recreate_collection(client, COLLECTION_NAME, vector_size)
+        recreate_collection(client, QDRANT_COLLECTION_NAME, vector_size)
         points = build_points(embeddings, metadata)
-        uploaded = upload_points(client, COLLECTION_NAME, points)
+        uploaded = upload_points(client, QDRANT_COLLECTION_NAME, points)
 
         print(f"Vectors uploaded: {uploaded}")
-        print(f"Upload completion status: completed for collection '{COLLECTION_NAME}'")
+        print(f"Upload completion status: completed for collection '{QDRANT_COLLECTION_NAME}'")
 
     except Exception as exc:
         print(f"Upload failed: {exc}")

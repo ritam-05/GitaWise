@@ -10,27 +10,14 @@ from pathlib import Path
 
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATASET_DIR = PROJECT_ROOT / "datasets"
-INPUT_PATH = DATASET_DIR / "clean_gita.csv"
-OUTPUT_PATH = DATASET_DIR / "gita_chunks.csv"
-
-REQUIRED_COLUMNS = [
-    "ID",
-    "Chapter",
-    "Verse",
-    "Speaker",
-    "Shloka",
-    "Transliteration",
-    "HinMeaning",
-    "EngMeaning",
-    "WordMeaning",
-    "Interpretation",
-    "Topics",
-    "EmotionTags",
-    "Summary",
-]
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config import (
+    CLEAN_GITA_CSV,
+    GITA_CHUNKS_CSV,
+    REQUIRED_SOURCE_COLUMNS,
+    CSV_ENCODING,
+)
 
 
 def load_dataset(path: Path) -> pd.DataFrame:
@@ -38,12 +25,12 @@ def load_dataset(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Input dataset not found: {path}")
 
-    return pd.read_csv(path, encoding="utf-8-sig").fillna("")
+    return pd.read_csv(path, encoding=CSV_ENCODING).fillna("")
 
 
 def validate_schema(df: pd.DataFrame) -> None:
     """Validate that all required source fields are present."""
-    missing_columns = [column for column in REQUIRED_COLUMNS if column not in df.columns]
+    missing_columns = [column for column in REQUIRED_SOURCE_COLUMNS if column not in df.columns]
     if missing_columns:
         raise ValueError(
             "Input dataset is missing required columns: "
@@ -82,19 +69,19 @@ def create_chunks(df: pd.DataFrame) -> pd.DataFrame:
 def save_chunks(df: pd.DataFrame, path: Path) -> None:
     """Save chunks using UTF-8 with BOM for spreadsheet compatibility."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    df.to_csv(path, index=False, encoding=CSV_ENCODING)
 
 
 def main() -> None:
     """Run the chunk creation pipeline."""
-    df = load_dataset(INPUT_PATH)
+    df = load_dataset(CLEAN_GITA_CSV)
     validate_schema(df)
 
     chunks = create_chunks(df)
-    save_chunks(chunks, OUTPUT_PATH)
+    save_chunks(chunks, GITA_CHUNKS_CSV)
 
     print(f"Total verses processed: {len(chunks)}")
-    print(f"Output file location: {OUTPUT_PATH}")
+    print(f"Output file location: {GITA_CHUNKS_CSV}")
 
 
 if __name__ == "__main__":
