@@ -1,13 +1,10 @@
 import { HeroLineArt } from "@/components/hero-line-art";
 import { ChatInput } from "@/components/chat-input";
 import { FadeIn } from "@/components/fade-in";
-import { PromptSuggestions } from "@/components/prompt-suggestions";
-import { TopNav } from "@/components/top-nav";
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
-      <TopNav />
       <section className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-4xl flex-col items-center justify-start px-5 pb-12 pt-0 sm:pt-1 lg:pt-2">
         <FadeIn>
           <div className="mx-auto max-w-xl space-y-2.5 sm:space-y-3">
@@ -24,8 +21,6 @@ export default function HomePage() {
           <div className="mx-auto w-full max-w-xl">
             <ChatInput />
           </div>
-
-          <PromptSuggestions />
         </FadeIn>
       </section>
     </main>

@@ -47,6 +47,27 @@ export function ChatInput({
     }
   }
 
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    event.preventDefault();
+    const plainText = event.clipboardData.getData("text/plain");
+
+    if (!plainText) {
+      return;
+    }
+
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? value.length;
+    const end = target.selectionEnd ?? value.length;
+    const nextValue = `${value.slice(0, start)}${plainText}${value.slice(end)}`;
+
+    setValue(nextValue);
+
+    requestAnimationFrame(() => {
+      const cursor = start + plainText.length;
+      target.setSelectionRange(cursor, cursor);
+    });
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -60,8 +81,13 @@ export function ChatInput({
       <Textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
+        onPaste={handlePaste}
         placeholder="Ask about dharma, action, wisdom…"
         disabled={disabled}
+        spellCheck={false}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
         className="flex-1 border-0 bg-transparent px-0 py-2 text-[15px] shadow-none focus:ring-0 placeholder:text-muted placeholder:opacity-50 disabled:opacity-50"
         style={{ minHeight: "36px", maxHeight: "120px" }}
         onKeyDown={(event) => {

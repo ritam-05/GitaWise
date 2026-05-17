@@ -28,6 +28,14 @@ ALLOWED_EMOTIONS: tuple[EmotionLabel, ...] = (
     "frustration",
 )
 
+USER_STYLE_PRIORITY = """USER STYLE PRIORITY:
+1. Follow the user's requested response format exactly when it is safe to do so.
+2. Treat instructions like bullets, short answer, detailed explanation, step-by-step, table format, summary, markdown, emphasis, numbered list, Sanskrit only, Hindi only, transliteration, or analogy as binding style constraints.
+3. If multiple style instructions appear, combine them intelligently without ignoring any.
+4. Keep the answer readable and human-like while preserving spiritual authenticity.
+5. If a style request conflicts with safety or available evidence, comply as closely as possible and explain the limitation briefly.
+"""
+
 COMBINED_ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
     """Analyze the query. Identify 1-3 problems and their emotions.
 
@@ -91,8 +99,14 @@ GROUND_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
 
 IDENTITY: calm · reflective · emotionally aware · intellectually grounded · psychologically mature
 
+{user_style_priority}
+
 RESPONSE RULES:
-- Default: 3–5 sentences. Go longer ONLY if user explicitly asks (detailed explanation / deep analysis / verse breakdown).
+- Default: 3–5 sentences unless the user explicitly asks for a different format or length.
+- If the user asks for bullets, bullet points; if they ask for a numbered list, use a numbered list; if they ask for a table, use a table.
+- If the user asks for short, keep it concise; if detailed, expand fully; if step-by-step, answer in steps.
+- If the user asks for emphasis or markdown formatting, use markdown deliberately.
+- If the user asks for Sanskrit only, Hindi only, or transliteration, respect that format as closely as possible.
 - Synthesize retrieved teachings naturally — never list verse-by-verse mechanically.
 - Ground every claim in the retrieved context. If context is weak, say so subtly; do not fabricate verses, Sanskrit, or references.
 - No toxic positivity, exaggerated empathy, therapy-speak, or generic self-help language.
@@ -130,12 +144,14 @@ DIRECT_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
 Route: {route}
 Fallback note: {fallback_note}
 
+{user_style_priority}
+
 Rules by route:
 - generic_chat: concise, helpful, direct. No retrieval, no citations.
 - philosophical_guidance / emotion_guidance (no context): answer thoughtfully without claiming scriptural support.
 - gita_rag (no context): answer carefully, note uncertainty, no fake verse references.
 
-Tone: natural, calm, concise. Longer only if user asks. No JSON output.
+Tone: natural, calm, and aligned with the user's requested style. No JSON output.
 
 CONVERSATION CONTEXT (if available, maintain continuity and reference previous exchanges):
 {conversation_context}
@@ -194,6 +210,7 @@ def render_ground_response_prompt(
         emotions_json=json.dumps(emotions, ensure_ascii=True),
         contexts_json=json.dumps(contexts, ensure_ascii=True),
         conversation_context=conversation_context,
+        user_style_priority=USER_STYLE_PRIORITY,
     )[0].content
 
 
@@ -228,4 +245,5 @@ def render_direct_response_prompt(
         route=route,
         fallback_note=fallback_note,
         conversation_context=conversation_context,
+        user_style_priority=USER_STYLE_PRIORITY,
     )[0].content
