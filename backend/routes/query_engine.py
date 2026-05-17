@@ -18,6 +18,79 @@ logger.info("[ROUTES] ✓ Query engine modules imported")
 
 router = APIRouter(prefix="/query-engine", tags=["query-engine"])
 
+@router.get("/today-philosophy")
+def todays_philosophy() -> dict:
+    """Return a deterministic "today's philosophy" summary from a verse
+    spoken by Krishna. The selection is date-based to change daily.
+    """
+    try:
+        import pandas as pd
+        from datetime import datetime, timedelta, timezone
+        import sys
+        from pathlib import Path
+
+        project_root = Path(__file__).resolve().parents[2]
+        sys.path.insert(0, str(project_root))
+        from config import GITA_CHUNKS_CSV, CSV_ENCODING
+
+        csv_path = Path(GITA_CHUNKS_CSV)
+        if not csv_path.exists():
+            raise FileNotFoundError(f"Chunks CSV not found: {GITA_CHUNKS_CSV}")
+
+        df = pd.read_csv(csv_path, encoding=CSV_ENCODING).fillna("")
+
+        # Stable sort for deterministic ordering
+        sort_cols = [c for c in ("Chapter", "Verse", "ID") if c in df.columns]
+        if sort_cols:
+            df = df.sort_values(by=sort_cols, na_position="last").reset_index(drop=True)
+
+        # Filter for verses where Speaker contains 'krishna' (case-insensitive)
+        if "Speaker" in df.columns:
+            krishna_df = df[df["Speaker"].astype(str).str.lower().str.contains("krishna")]
+        else:
+            krishna_df = df
+
+        if krishna_df.empty:
+            krishna_df = df
+
+        # Use UTC date so the selection changes at the same moment globally
+        today_utc = datetime.utcnow().date()
+        total = len(krishna_df)
+        if total == 0:
+            raise ValueError("No verses available in chunks CSV.")
+
+        index = today_utc.toordinal() % total
+        row = krishna_df.iloc[index]
+
+        # Prepare values
+        def safe_int(val):
+            try:
+                return int(val)
+            except Exception:
+                return None
+
+        chapter = safe_int(row.get("Chapter", None))
+        verse = safe_int(row.get("Verse", None))
+        summary = str(row.get("Summary") or row.get("EngMeaning") or "").strip()
+        shloka = str(row.get("Shloka") or "").strip()
+
+        citation = f"Chapter {chapter}, Verse {verse}" if chapter and verse else ""
+
+        # Calculate next UTC midnight as expiry so frontend knows when to refresh
+        next_midnight_utc = datetime(year=today_utc.year, month=today_utc.month, day=today_utc.day) + timedelta(days=1)
+        next_midnight_utc = next_midnight_utc.replace(tzinfo=timezone.utc)
+
+        return {
+            "summary": summary,
+            "shloka": shloka,
+            "chapter": chapter,
+            "verse": verse,
+            "citation": citation,
+            "expires_at": next_midnight_utc.isoformat(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load today's philosophy: {exc}") from exc
+
 
 class QueryEngineRequest(BaseModel):
     """Request payload for query-engine endpoints."""
