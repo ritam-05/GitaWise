@@ -9,6 +9,7 @@ type CitationCardProps = {
   shloka: string;
   meaning: string;
   tags: string[];
+  summary?: string;
 };
 
 export function CitationCard({
@@ -17,6 +18,7 @@ export function CitationCard({
   shloka,
   meaning,
   tags,
+  summary,
 }: CitationCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -60,18 +62,8 @@ export function CitationCard({
               <blockquote className="text-[14px] leading-6 italic text-secondary">
                 {shloka}
               </blockquote>
-              <p className="mt-2 text-[13px] leading-5 text-muted">{meaning}</p>
-              {tags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-surface/80 px-2 py-0.5 text-[12px] uppercase tracking-[0.08em] text-muted"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+              {summary && (
+                <p className="mt-2 text-[13px] leading-5 text-secondary">{summary}</p>
               )}
             </div>
           </motion.div>

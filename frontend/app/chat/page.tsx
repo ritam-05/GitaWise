@@ -46,7 +46,8 @@ export default function ChatPage() {
         chapter: context.chapter,
         verse: context.verse,
         shloka: context.shloka,
-        meaning: context.translation || context.interpretation,
+        meaning: context.meaning || context.translation || context.interpretation,
+        summary: context.summary,
         tags: context.topics,
       }));
 

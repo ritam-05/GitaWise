@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Menu, UserRound } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { DisclaimerModal } from "@/components/disclaimer-modal";
 
-const menuItems = ["Settings", "Today's Philosophy", "Read Verses", "Disclaimer"];
+const menuItems = ["Settings", "Today's Philosophy", "Disclaimer"];
 
 export function TopNav() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -29,6 +31,7 @@ export function TopNav() {
       if (event.key === "Escape") {
         setIsMenuOpen(false);
         setIsProfileOpen(false);
+        setIsDisclaimerOpen(false);
       }
     }
 
@@ -42,8 +45,9 @@ export function TopNav() {
   }, []);
 
   return (
-    <header className="flex w-full items-center justify-end px-4 py-4 sm:px-6">
-      <div className="flex items-center gap-2">
+    <>
+      <header className="flex w-full items-center justify-end px-4 py-4 sm:px-6">
+        <div className="flex items-center gap-2">
         <ThemeToggle />
         <div ref={profileRef} className="relative">
           <button
@@ -107,7 +111,12 @@ export function TopNav() {
                   <button
                     key={item}
                     type="button"
-                    onClick={() => setIsMenuOpen(false)}
+                    onClick={() => {
+                      if (item === "Disclaimer") {
+                        setIsDisclaimerOpen(true);
+                      }
+                      setIsMenuOpen(false);
+                    }}
                     className="w-full rounded-xl px-3 py-2.5 text-left text-[15px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
                   >
                     {item}
@@ -118,6 +127,8 @@ export function TopNav() {
           )}
         </div>
       </div>
-    </header>
+      </header>
+      <DisclaimerModal isOpen={isDisclaimerOpen} onClose={() => setIsDisclaimerOpen(false)} />
+    </>
   );
 }

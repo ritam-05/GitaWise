@@ -225,6 +225,8 @@ def answer_query(request: Request, payload: QueryEngineRequest) -> GeneratedAnsw
                     "shloka": context.shloka,
                     "translation": context.translation,
                     "interpretation": context.interpretation,
+                    "meaning": context.interpretation,
+                    "summary": context.summary,
                     "topics": context.topics,
                 }
                 for context in generated.contexts

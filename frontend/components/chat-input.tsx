@@ -56,16 +56,7 @@ export function ChatInput({
         className,
       )}
     >
-      <button
-        type="button"
-        disabled={disabled}
-        className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-surface/60 hover:text-secondary transition disabled:opacity-50"
-        aria-label="Attachment"
-      >
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-      </button>
+      {/* Attachment button removed per UX request */}
       <Textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}

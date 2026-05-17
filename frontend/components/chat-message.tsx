@@ -10,6 +10,7 @@ export type Citation = {
   shloka: string;
   meaning: string;
   tags: string[];
+  summary?: string;
 };
 
 type ChatMessageProps = {
@@ -31,7 +32,7 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
       <div
         className={cn(
           isUser
-            ? "max-w-[60%] rounded-2xl bg-surface/60 px-4 py-2.5"
+            ? "max-w-[60%] rounded-2xl bg-surface px-4 py-2.5"
             : "w-full space-y-3",
         )}
       >
