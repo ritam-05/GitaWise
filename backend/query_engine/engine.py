@@ -3,53 +3,44 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 logger.info("[ENGINE_MODULE] Starting engine module imports...")
 
-from typing import Optional
-
-from .config import QueryEngineConfig, get_logger, load_query_engine_config
-logger.info("[ENGINE_MODULE] Config imported")
 from .combined_analyzer import CombinedAnalyzer
-logger.info("[ENGINE_MODULE] CombinedAnalyzer imported")
+from .config import QueryEngineConfig, get_logger, load_query_engine_config
 from .context_builder import ContextBuilder
-logger.info("[ENGINE_MODULE] ContextBuilder imported")
-from .decomposer import GroqJSONClient
-logger.info("[ENGINE_MODULE] GroqJSONClient imported")
+from .decomposer import GroqJSONClient, SarvamTextClient
 from .emotion_normalizer import EmotionNormalizer
-logger.info("[ENGINE_MODULE] EmotionNormalizer imported")
 from .generator import GroundedResponseGenerator
-logger.info("[ENGINE_MODULE] GroundedResponseGenerator imported")
+from .lightweight_router import LightweightRouter
 from .models import (
     EmotionNormalizationResult,
     EmotionResult,
     EngineResponse,
     GeneratedAnswer,
     Problem,
-    RouteResult,
     RetrievalQuery,
     RetrievedVerse,
+    RouteResult,
 )
-logger.info("[ENGINE_MODULE] Models imported")
 from .query_builder import RetrievalQueryBuilder
-logger.info("[ENGINE_MODULE] RetrievalQueryBuilder imported")
-from .lightweight_router import LightweightRouter
-logger.info("[ENGINE_MODULE] LightweightRouter imported (OPTIMIZED: rules-based, zero LLM calls)")
 from .reranker import GlobalVerseReranker
-logger.info("[ENGINE_MODULE] GlobalVerseReranker imported")
 from .retriever import QdrantVerseRetriever
-logger.info("[ENGINE_MODULE] QdrantVerseRetriever imported (WATCH: this may hang on Qdrant connect)")
 
-# Import cache layer (optional, graceful degradation if not available)
+logger.info("[ENGINE_MODULE] Core query-engine modules imported")
+
 try:
     from backend.cache import CacheManager, SessionCache
+
     CACHE_AVAILABLE = True
     logger.info("[ENGINE_MODULE] Cache layer imported")
 except ImportError:
     CACHE_AVAILABLE = False
+    CacheManager = object
+    SessionCache = object
     logger.info("[ENGINE_MODULE] Cache layer not available (proceeding without caching)")
-
-logger.info("[ENGINE_MODULE] ✓ All engine module imports completed")
 
 
 class GitaQueryEngine:
@@ -58,9 +49,8 @@ class GitaQueryEngine:
     def __init__(self, config: QueryEngineConfig | None = None, cache_manager: Optional[CacheManager] = None) -> None:
         self.config = config or load_query_engine_config()
         self.logger = get_logger(self.__class__.__name__, self.config.log_level)
-        self.logger.info("[ENGINE] ✓ Initializing GitaQueryEngine...")
-        
-        # Initialize caching if available
+        self.logger.info("[ENGINE] Initializing GitaQueryEngine...")
+
         self.cache_manager = cache_manager
         self.session_cache: Optional[SessionCache] = None
         if CACHE_AVAILABLE and self.cache_manager is None:
@@ -72,7 +62,7 @@ class GitaQueryEngine:
                 session_context_turns=self.config.session_context_turns,
                 session_cleanup_interval_seconds=self.config.session_cleanup_interval_seconds,
             )
-            self.logger.info("[ENGINE] ✓ Cache initialized (session-aware, multi-layer)")
+            self.logger.info("[ENGINE] Cache initialized (session-aware, multi-layer)")
         elif CACHE_AVAILABLE and self.cache_manager:
             self.session_cache = SessionCache(
                 self.cache_manager,
@@ -81,38 +71,50 @@ class GitaQueryEngine:
                 session_context_turns=self.config.session_context_turns,
                 session_cleanup_interval_seconds=self.config.session_cleanup_interval_seconds,
             )
-            self.logger.info("[ENGINE] ✓ Using provided cache manager")
+            self.logger.info("[ENGINE] Using provided cache manager")
         else:
             self.logger.warning("[ENGINE] Running without caching (cache_available=%s)", CACHE_AVAILABLE)
-        
-        self.logger.info("[ENGINE] Creating Groq client...")
+
+        self.logger.info("[ENGINE] Creating Groq JSON client...")
         self.groq_client = GroqJSONClient(self.config)
-        self.logger.info("[ENGINE] ✓ Groq client created")
-        self.logger.info("[ENGINE] Creating lightweight router (OPTIMIZED: rules-based, zero LLM calls)...")
+        self.logger.info("[ENGINE] Groq JSON client created")
+
+        self.logger.info("[ENGINE] Creating Sarvam text client...")
+        self.sarvam_text_client = SarvamTextClient(self.config)
+        self.logger.info("[ENGINE] Sarvam text client created")
+
+        self.logger.info("[ENGINE] Creating lightweight router...")
         self.router = LightweightRouter()
-        self.logger.info("[ENGINE] ✓ Lightweight router created (no LLM overhead)")
+        self.logger.info("[ENGINE] Lightweight router created")
+
         self.logger.info("[ENGINE] Creating combined analyzer...")
         self.combined_analyzer = CombinedAnalyzer(self.groq_client, self.config)
-        self.logger.info("[ENGINE] ✓ Combined analyzer created")
+        self.logger.info("[ENGINE] Combined analyzer created")
+
         self.logger.info("[ENGINE] Creating emotion normalizer...")
         self.emotion_normalizer = EmotionNormalizer(self.groq_client)
-        self.logger.info("[ENGINE] ✓ Emotion normalizer created")
-        self.logger.info("[ENGINE] Creating generator...")
-        self.generator = GroundedResponseGenerator(self.groq_client)
-        self.logger.info("[ENGINE] ✓ Generator created")
-        self.logger.info("[ENGINE] Creating query builder (OPTIMIZED: programmatic, zero LLM calls)...")
-        self.query_builder = RetrievalQueryBuilder()  # No groq_client needed
-        self.logger.info("[ENGINE] ✓ Query builder created (no LLM overhead)")
+        self.logger.info("[ENGINE] Emotion normalizer created")
+
+        self.logger.info("[ENGINE] Creating response generator...")
+        self.generator = GroundedResponseGenerator(self.sarvam_text_client)
+        self.logger.info("[ENGINE] Response generator created")
+
+        self.logger.info("[ENGINE] Creating query builder...")
+        self.query_builder = RetrievalQueryBuilder()
+        self.logger.info("[ENGINE] Query builder created")
+
         self.logger.info("[ENGINE] Creating retriever...")
         self.retriever = QdrantVerseRetriever(self.config)
-        self.logger.info("[ENGINE] ✓ Retriever created")
+        self.logger.info("[ENGINE] Retriever created")
+
         self.logger.info("[ENGINE] Creating reranker...")
         self.reranker = GlobalVerseReranker(self.config)
-        self.logger.info("[ENGINE] ✓ Reranker created")
+        self.logger.info("[ENGINE] Reranker created")
+
         self.logger.info("[ENGINE] Creating context builder...")
         self.context_builder = ContextBuilder()
-        self.logger.info("[ENGINE] ✓ Context builder created")
-        self.logger.info("[ENGINE] ✓✓✓ GitaQueryEngine fully initialized!")
+        self.logger.info("[ENGINE] Context builder created")
+        self.logger.info("[ENGINE] GitaQueryEngine fully initialized")
 
     def decompose_query(self, user_query: str) -> list[Problem]:
         """Deprecated: use analyze_query instead."""
@@ -129,11 +131,7 @@ class GitaQueryEngine:
         )
 
     def analyze_query(self, user_query: str) -> tuple[list[Problem], list[EmotionResult]]:
-        """
-        Unified query analysis: decompose and detect emotions in ONE efficient LLM call.
-
-        This replaces the separate decompose_query + detect_emotions pipeline.
-        """
+        """Unified query analysis: decompose and detect emotions in one LLM call."""
         return self.combined_analyzer.analyze(user_query)
 
     def normalize_emotion(self, emotion: str) -> EmotionNormalizationResult:
@@ -167,13 +165,11 @@ class GitaQueryEngine:
         self.logger.info("Starting query-engine pipeline for query: %s", user_query)
         warnings: list[str] = []
 
-        # UNIFIED ANALYSIS: decompose + detect emotions in ONE LLM call
         try:
             problems, emotions = self.analyze_query(user_query)
         except Exception as exc:
             self.logger.exception("Combined analysis failed.")
             warnings.append(f"combined_analysis_failed: {exc}")
-            # Fallback: treat as generic query
             problems = [Problem(problem="user query")]
             emotions = [EmotionResult(problem="user query", emotion="none")]
 
@@ -215,18 +211,7 @@ class GitaQueryEngine:
         return response
 
     def run_with_session(self, user_query: str, session_id: str) -> EngineResponse:
-        """
-        Session-aware query pipeline with intelligent caching.
-        
-        Reuses cached decompositions, emotions, and retrievals within a session.
-        
-        Args:
-            user_query: User's query
-            session_id: Session identifier for cache scoping
-            
-        Returns:
-            EngineResponse with cached or fresh computations
-        """
+        """Session-aware query pipeline with intelligent caching."""
         if not user_query.strip():
             raise ValueError("user_query must not be empty.")
 
@@ -237,22 +222,21 @@ class GitaQueryEngine:
         self.logger.info("[ENGINE_SESSION] Processing query with session_id=%s", session_id)
         warnings: list[str] = []
 
-        # Try to get cached decomposition and emotions
         try:
             cached_decomp = self.session_cache.get_cached_decomposition(user_query)
             cached_emotions_list = self.session_cache.get_cached_emotions(user_query)
-            
+
             if cached_decomp and cached_emotions_list:
-                self.logger.info("[ENGINE_SESSION] ✓ Cache hit: decomposition + emotions")
+                self.logger.info("[ENGINE_SESSION] Cache hit: decomposition + emotions")
                 problems = [Problem(problem=p["problem"]) for p in cached_decomp]
-                emotions = [EmotionResult(problem=p, emotion=e) for p, e in zip([p["problem"] for p in cached_decomp], cached_emotions_list)]
+                emotions = [
+                    EmotionResult(problem=p, emotion=e)
+                    for p, e in zip([p["problem"] for p in cached_decomp], cached_emotions_list)
+                ]
                 warnings.append("used_cache:decomposition_emotions")
             else:
-                # Run fresh analysis
                 self.logger.info("[ENGINE_SESSION] Cache miss: running fresh decomposition + emotion analysis")
                 problems, emotions = self.analyze_query(user_query)
-                
-                # Cache results
                 self.session_cache.cache_decomposition(
                     session_id,
                     user_query,
@@ -269,28 +253,23 @@ class GitaQueryEngine:
             problems = [Problem(problem="user query")]
             emotions = [EmotionResult(problem="user query", emotion="none")]
 
-        # Build retrieval queries (programmatic, instant)
         retrieval_queries = self.build_queries(emotions)
 
-        # Try to retrieve from cache
         try:
             cached_verses = None
             for ret_q in retrieval_queries:
                 cached = self.session_cache.get_cached_retrieval(ret_q.query)
                 if cached:
                     cached_verses = cached
-                    self.logger.info("[ENGINE_SESSION] ✓ Cache hit: %d retrieved verses", len(cached))
+                    self.logger.info("[ENGINE_SESSION] Cache hit: %d retrieved verses", len(cached))
                     warnings.append("used_cache:retrieval")
                     break
 
             if cached_verses:
                 retrieved_verses = [RetrievedVerse(**v) if isinstance(v, dict) else v for v in cached_verses]
             else:
-                # Run fresh retrieval
                 self.logger.info("[ENGINE_SESSION] Cache miss: running fresh retrieval")
                 retrieved_verses = self.retrieve(retrieval_queries)
-                
-                # Cache retrieval results
                 if retrieved_verses:
                     self.session_cache.cache_retrieval(
                         session_id,
@@ -302,7 +281,6 @@ class GitaQueryEngine:
             warnings.append(f"retrieval_failed: {exc}")
             retrieved_verses = []
 
-        # Rerank
         try:
             reranked_verses = self.rerank(user_query, retrieved_verses)
         except Exception as exc:
@@ -314,7 +292,6 @@ class GitaQueryEngine:
                 reverse=True,
             )[: self.config.final_top_k]
 
-        # Build context
         try:
             contexts = self.build_context(reranked_verses)
         except Exception as exc:
@@ -330,6 +307,9 @@ class GitaQueryEngine:
             contexts=contexts,
             warnings=warnings,
         )
-        
-        self.logger.info("[ENGINE_SESSION] Pipeline completed with %d final contexts (session_id=%s)", len(contexts), session_id)
+        self.logger.info(
+            "[ENGINE_SESSION] Pipeline completed with %d final contexts (session_id=%s)",
+            len(contexts),
+            session_id,
+        )
         return response

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -34,7 +35,42 @@ USER_STYLE_PRIORITY = """USER STYLE PRIORITY:
 3. If multiple style instructions appear, combine them intelligently without ignoring any.
 4. Keep the answer readable and human-like while preserving spiritual authenticity.
 5. If a style request conflicts with safety or available evidence, comply as closely as possible and explain the limitation briefly.
+6. Apply style and length instructions from the current user query only. Do not carry over old word-count requests from previous turns unless the current query repeats them.
 """
+
+
+def _render_word_count_instruction(user_query: str) -> str:
+    """Return response-length guidance based on explicit user word-count requests."""
+    match = re.search(
+        r"\b(?:in|within|around|about|approx(?:imately)?)?\s*(\d{2,5})\s*words?\b",
+        user_query,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return (
+            "No explicit word count was requested. Keep the answer under 150-200 words by "
+            "default unless the user asked for a different style such as short or detailed."
+        )
+
+    target_words = int(match.group(1))
+    lower_bound = max(1, target_words - 20)
+    upper_bound = target_words + 20
+    return (
+        f"The user explicitly requested {target_words} words. Keep the answer between "
+        f"{lower_bound} and {upper_bound} words."
+    )
+
+
+def _sanitize_conversation_content(content: str) -> str:
+    """Remove stale length-control instructions from previous-turn context."""
+    sanitized = re.sub(
+        r"\b(?:in|within|around|about|approx(?:imately)?)?\s*\d{2,5}\s*words?\b",
+        "[previous word-count request omitted]",
+        content,
+        flags=re.IGNORECASE,
+    )
+    return sanitized.strip()
+
 
 COMBINED_ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
     """Analyze the query. Identify 1-3 problems and their emotions.
@@ -95,33 +131,34 @@ Input emotion:
 )
 
 GROUND_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
-    """You are GitaWise — a calm, reflective AI companion grounded in the Bhagavad Gita. Not a therapist, coach, or motivational speaker. A philosophically grounded presence.
+    """You are GitaWise, a calm, reflective AI companion grounded in the Bhagavad Gita. Not a therapist, coach, or motivational speaker. A philosophically grounded presence.
 
-IDENTITY: calm · reflective · emotionally aware · intellectually grounded · psychologically mature
+IDENTITY: calm | reflective | emotionally aware | intellectually grounded | psychologically mature
 
 {user_style_priority}
 
 RESPONSE RULES:
-- Default: 3–5 sentences unless the user explicitly asks for a different format or length.
-- If the user asks for bullets, bullet points; if they ask for a numbered list, use a numbered list; if they ask for a table, use a table.
+- Default: keep the answer under 150-200 words unless the user explicitly asks for a different format or length.
+- {word_count_instruction}
+- If the user asks for bullets, use bullet points; if they ask for a numbered list, use a numbered list; if they ask for a table, use a table.
 - If the user asks for short, keep it concise; if detailed, expand fully; if step-by-step, answer in steps.
 - If the user asks for emphasis or markdown formatting, use markdown deliberately.
 - If the user asks for Sanskrit only, Hindi only, or transliteration, respect that format as closely as possible.
-- Synthesize retrieved teachings naturally — never list verse-by-verse mechanically.
+- Synthesize retrieved teachings naturally; never list verse by verse mechanically.
 - Ground every claim in the retrieved context. If context is weak, say so subtly; do not fabricate verses, Sanskrit, or references.
 - No toxic positivity, exaggerated empathy, therapy-speak, or generic self-help language.
-- Acknowledge emotion with restraint: connect struggle to insight, don't over-validate it.
+- Acknowledge emotion with restraint: connect struggle to insight, do not over-validate it.
 - Prefer clarity over abstraction; grounded reasoning over mysticism; balance over certainty.
 
-STYLE: simple · elegant · reflective · modern. No archaic wording, excessive Sanskrit, or AI-sounding filler.
+STYLE: simple | elegant | reflective | modern. No archaic wording, excessive Sanskrit, or AI-sounding filler.
 
 EDGE CASES:
-- Harmful / extremist / violent use of Gita → refuse calmly, redirect philosophically.
-- Off-topic queries → answer briefly if harmless; otherwise redirect gently.
-- Conflicting interpretations → acknowledge nuance; avoid false certainty.
+- Harmful, extremist, or violent use of Gita -> refuse calmly, redirect philosophically.
+- Off-topic queries -> answer briefly if harmless; otherwise redirect gently.
+- Conflicting interpretations -> acknowledge nuance; avoid false certainty.
 
 STRUCTURE (natural, not labeled):
-1. Brief recognition of the philosophical/emotional tension
+1. Brief recognition of the philosophical or emotional tension
 2. Unified synthesis from retrieved teachings
 3. Calm reflective takeaway
 
@@ -150,6 +187,7 @@ Rules by route:
 - generic_chat: concise, helpful, direct. No retrieval, no citations.
 - philosophical_guidance / emotion_guidance (no context): answer thoughtfully without claiming scriptural support.
 - gita_rag (no context): answer carefully, note uncertainty, no fake verse references.
+- {word_count_instruction}
 
 Tone: natural, calm, and aligned with the user's requested style. No JSON output.
 
@@ -185,7 +223,7 @@ def render_ground_response_prompt(
 ) -> str:
     """
     Render ground response prompt with optional conversation context.
-    
+
     Args:
         user_query: Current user query
         problems: Identified problems
@@ -193,23 +231,23 @@ def render_ground_response_prompt(
         contexts: Retrieved Gita contexts
         conversation_history: Optional list of {"role": "user"/"assistant", "content": "..."} dicts
     """
-    # Format conversation history if provided
     conversation_context = ""
     if conversation_history:
         context_lines = ["PREVIOUS CONVERSATION:"]
-        for turn in conversation_history[-5:]:  # Keep last 5 turns for context
+        for turn in conversation_history[-5:]:
             role = turn.get("role", "unknown").upper()
-            content = turn.get("content", "").strip()
+            content = _sanitize_conversation_content(turn.get("content", "").strip())
             if content:
-                context_lines.append(f"{role}: {content[:200]}")  # Truncate long messages
+                context_lines.append(f"{role}: {content[:200]}")
         conversation_context = "\n".join(context_lines) if context_lines else ""
-    
+
     return GROUND_RESPONSE_PROMPT.format_messages(
         user_query=user_query,
         problems_json=json.dumps(problems, ensure_ascii=True),
         emotions_json=json.dumps(emotions, ensure_ascii=True),
         contexts_json=json.dumps(contexts, ensure_ascii=True),
         conversation_context=conversation_context,
+        word_count_instruction=_render_word_count_instruction(user_query),
         user_style_priority=USER_STYLE_PRIORITY,
     )[0].content
 
@@ -222,28 +260,28 @@ def render_direct_response_prompt(
 ) -> str:
     """
     Render direct response prompt with optional conversation context.
-    
+
     Args:
         user_query: Current user query
         route: Selected route
         fallback_note: Route-specific fallback note
         conversation_history: Optional list of {"role": "user"/"assistant", "content": "..."} dicts
     """
-    # Format conversation history if provided
     conversation_context = ""
     if conversation_history:
         context_lines = ["PREVIOUS CONVERSATION:"]
-        for turn in conversation_history[-5:]:  # Keep last 5 turns for context
+        for turn in conversation_history[-5:]:
             role = turn.get("role", "unknown").upper()
-            content = turn.get("content", "").strip()
+            content = _sanitize_conversation_content(turn.get("content", "").strip())
             if content:
-                context_lines.append(f"{role}: {content[:200]}")  # Truncate long messages
+                context_lines.append(f"{role}: {content[:200]}")
         conversation_context = "\n".join(context_lines) if context_lines else ""
-    
+
     return DIRECT_RESPONSE_PROMPT.format_messages(
         user_query=user_query,
         route=route,
         fallback_note=fallback_note,
         conversation_context=conversation_context,
+        word_count_instruction=_render_word_count_instruction(user_query),
         user_style_priority=USER_STYLE_PRIORITY,
     )[0].content

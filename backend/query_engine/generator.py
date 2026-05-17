@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from .config import get_logger
-from .decomposer import GroqJSONClient
+from .decomposer import SarvamTextClient
 from .models import AdaptiveAnswer, EmotionResult, GeneratedAnswer, Problem, RetrievedVerse
 from .prompts import render_direct_response_prompt, render_ground_response_prompt
 
@@ -16,8 +15,8 @@ LOGGER = get_logger(__name__)
 class GroundedResponseGenerator:
     """Generate a final grounded answer using only retrieved contexts."""
 
-    def __init__(self, groq_client: GroqJSONClient) -> None:
-        self.groq_client = groq_client
+    def __init__(self, text_client: SarvamTextClient) -> None:
+        self.text_client = text_client
 
     def generate(
         self,
@@ -49,7 +48,7 @@ class GroundedResponseGenerator:
             contexts=[self._context_payload(item) for item in contexts],
             conversation_history=conversation_history,
         )
-        answer = self.groq_client.invoke_text(prompt).strip()
+        answer = self.text_client.invoke_text(prompt).strip()
         
         # Sanitize answer before citation extraction
         try:
@@ -203,8 +202,8 @@ class GroundedResponseGenerator:
 class DirectResponseGenerator:
     """Generate a direct non-RAG answer when retrieval should be bypassed or skipped."""
 
-    def __init__(self, groq_client: GroqJSONClient) -> None:
-        self.groq_client = groq_client
+    def __init__(self, text_client: SarvamTextClient) -> None:
+        self.text_client = text_client
 
     def generate(
         self,
@@ -224,7 +223,7 @@ class DirectResponseGenerator:
             fallback_note: Route-specific fallback instruction
             conversation_history: Previous turns for context chaining
         """
-        answer = self.groq_client.invoke_text(
+        answer = self.text_client.invoke_text(
             render_direct_response_prompt(
                 user_query=user_query,
                 route=route,
@@ -235,7 +234,7 @@ class DirectResponseGenerator:
         
         # Sanitize direct response answer as well
         try:
-            sanitizer = GroundedResponseGenerator(self.groq_client)
+            sanitizer = GroundedResponseGenerator(self.text_client)
             answer = sanitizer._sanitize_answer(answer)
             LOGGER.debug("Direct response answer sanitized successfully")
         except Exception as exc:

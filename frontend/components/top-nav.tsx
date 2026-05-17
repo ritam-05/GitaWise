@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Menu, UserRound } from "lucide-react";
+import { House, Menu, UserRound } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DisclaimerModal } from "@/components/disclaimer-modal";
 import { TodaysPhilosophyModal } from "@/components/todays-philosophy-modal";
@@ -9,6 +11,8 @@ import { TodaysPhilosophyModal } from "@/components/todays-philosophy-modal";
 const menuItems = ["Settings", "Today's Philosophy", "Disclaimer"];
 
 export function TopNav() {
+  const pathname = usePathname();
+  const showHomeButton = pathname?.startsWith("/chat") ?? false;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
@@ -48,7 +52,19 @@ export function TopNav() {
 
   return (
     <>
-      <header className="flex w-full items-center justify-end px-4 py-4 sm:px-6">
+      <header className="flex w-full items-center justify-between px-4 py-4 sm:px-6">
+        <div>
+          {showHomeButton && (
+            <Link
+              href="/"
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-transparent px-4 text-sm font-medium text-muted transition-colors hover:border-border hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              aria-label="Go to home page"
+            >
+              <House className="h-4 w-4" aria-hidden="true" />
+              Home
+            </Link>
+          )}
+        </div>
         <div className="flex items-center gap-2">
         <ThemeToggle />
         <div ref={profileRef} className="relative">

@@ -17,12 +17,15 @@ class QueryEngineConfig(BaseModel):
     """Runtime configuration for decomposition, retrieval, and reranking."""
 
     groq_api_key: str = Field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
+    sarvam_api_key: str = Field(default_factory=lambda: os.getenv("SARVAM_API_KEY", ""))
     qdrant_api_key: str = Field(default_factory=lambda: os.getenv("QDRANT_API_KEY", ""))
     qdrant_endpoint: str = Field(default_factory=lambda: os.getenv("QDRANT_ENDPOINT", ""))
     groq_model_name: str = "llama-3.3-70b-versatile"
     # OPTIMIZED: Smaller model for extraction/classification tasks (analyzer, router)
     # This reduces token usage and cost while maintaining quality for structured extraction
     groq_analyzer_model_name: str = "llama-3.1-8b-instant"
+    sarvam_model_name: str = "sarvam-m"
+    sarvam_fallback_model_name: str = "sarvam-m"
     embedding_model_name: str = "BAAI/bge-large-en-v1.5"
     reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
     qdrant_collection_name: str = "gita_verses"
@@ -32,6 +35,10 @@ class QueryEngineConfig(BaseModel):
     qdrant_timeout_seconds: int = 60
     groq_temperature: float = 0.0
     groq_max_retries: int = 2
+    sarvam_temperature: float = 0.2
+    sarvam_max_retries: int = 2
+    sarvam_max_tokens: int = 1024
+    sarvam_timeout_seconds: int = 60
     reranker_batch_size: int = 16
     # When performing hybrid reranking we first filter by embedding similarity
     # using the retriever's scores and then LLM-rerank the top N candidates.
@@ -59,7 +66,7 @@ class QueryEngineConfig(BaseModel):
     
     log_level: str = "INFO"
 
-    @field_validator("groq_api_key", "qdrant_api_key", "qdrant_endpoint")
+    @field_validator("groq_api_key", "sarvam_api_key", "qdrant_api_key", "qdrant_endpoint")
     @classmethod
     def _validate_required_env(cls, value: str, info: object) -> str:
         if not value.strip():
@@ -100,6 +107,21 @@ class QueryEngineConfig(BaseModel):
     def _validate_threshold(cls, value: float) -> float:
         if not 0.0 <= value <= 1.0:
             raise ValueError("retrieval_confidence_threshold must be between 0.0 and 1.0.")
+        return value
+
+    @field_validator("sarvam_temperature")
+    @classmethod
+    def _validate_sarvam_temperature(cls, value: float) -> float:
+        if not 0.0 <= value <= 2.0:
+            raise ValueError("sarvam_temperature must be between 0.0 and 2.0.")
+        return value
+
+    @field_validator("sarvam_max_retries", "sarvam_max_tokens", "sarvam_timeout_seconds")
+    @classmethod
+    def _validate_positive_ints(cls, value: int, info: object) -> int:
+        if value <= 0:
+            field_name = getattr(info, "field_name", "configuration")
+            raise ValueError(f"{field_name} must be greater than 0.")
         return value
 
     @field_validator("session_ttl_seconds")

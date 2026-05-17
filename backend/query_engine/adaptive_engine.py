@@ -44,7 +44,7 @@ class AdaptiveGitaEngine:
         self.config = config or load_query_engine_config()
         self.logger = get_logger(self.__class__.__name__, self.config.log_level)
         self.query_engine = GitaQueryEngine(self.config, cache_manager=cache_manager)
-        self.direct_generator = DirectResponseGenerator(self.query_engine.groq_client)
+        self.direct_generator = DirectResponseGenerator(self.query_engine.sarvam_text_client)
         self.session_cache = self.query_engine.session_cache if hasattr(self.query_engine, 'session_cache') else None
         # Lightweight conversational resolver for follow-up resolution
         try:
