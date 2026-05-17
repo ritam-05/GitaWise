@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+logger = logging.getLogger(__name__)
+logger.info("[RETRIEVER] Module starting...")
+
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
+logger.info("[RETRIEVER] QdrantClient imported")
 from tqdm.auto import tqdm
+logger.info("[RETRIEVER] tqdm imported")
 
 from .config import QueryEngineConfig, get_logger
+logger.info("[RETRIEVER] Config imported")
+from .embedding_model import get_embedding_model
+logger.info("[RETRIEVER] Embedding model imported")
 from .models import RetrievalQuery, RetrievedVerse
+logger.info("[RETRIEVER] Models imported")
 
 LOGGER = get_logger(__name__)
+logger.info("[RETRIEVER] ✓ Module fully initialized")
 
 
 class QdrantVerseRetriever:
@@ -19,12 +29,13 @@ class QdrantVerseRetriever:
 
     def __init__(self, config: QueryEngineConfig) -> None:
         self.config = config
-        self.embedding_model = SentenceTransformer(config.embedding_model_name)
+        LOGGER.info("[RETRIEVER] Connecting to Qdrant at %s", config.qdrant_endpoint)
         self.client = QdrantClient(
             url=config.qdrant_endpoint,
             api_key=config.qdrant_api_key,
             timeout=config.qdrant_timeout_seconds,
         )
+        LOGGER.info("[RETRIEVER] ✓ Qdrant client initialized successfully")
 
     def retrieve(
         self,
@@ -38,7 +49,9 @@ class QdrantVerseRetriever:
         collected: list[RetrievedVerse] = []
 
         for item in tqdm(retrieval_queries, desc="Retrieving verses", leave=False):
-            vector = self.embedding_model.encode(
+            # Use singleton embedding model (loaded at startup)
+            embedding_model = get_embedding_model()
+            vector = embedding_model.encode(
                 item.query,
                 normalize_embeddings=True,
                 convert_to_numpy=True,

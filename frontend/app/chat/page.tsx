@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const hasInitialized = useRef(false);
+  const activeRequestRef = useRef<AbortController | null>(null);
 
   // Initialize with URL search param on mount (only once)
   useEffect(() => {
@@ -32,12 +33,15 @@ export default function ChatPage() {
   }, []);
 
   const handleSubmit = async (query: string) => {
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+
     // Add user message
     setMessages((prev) => [...prev, { role: "user", content: query }]);
     setIsLoading(true);
 
     try {
-      const result = await fetchQueryAnswer(query);
+      const result = await fetchQueryAnswer(query, controller.signal);
       const citations = result.contexts.map((context) => ({
         chapter: context.chapter,
         verse: context.verse,
@@ -52,10 +56,14 @@ export default function ChatPage() {
         {
           role: "assistant",
           content: result.answer,
-          citations: citations,
+          citations,
         },
       ]);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
       const errorMessage =
         error instanceof Error
           ? `Backend connection issue: ${error.message}`
@@ -69,8 +77,17 @@ export default function ChatPage() {
         },
       ]);
     } finally {
-      setIsLoading(false);
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null;
+        setIsLoading(false);
+      }
     }
+  };
+
+  const handleStopGeneration = () => {
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
+    setIsLoading(false);
   };
 
   return (
@@ -78,10 +95,10 @@ export default function ChatPage() {
       <Sidebar />
       <main className="flex min-h-screen flex-1 flex-col">
         <div className="subtle-scrollbar flex-1 overflow-y-auto px-0 py-10">
-          <div className="mx-auto w-full max-w-[60vw] space-y-6">
+          <div className="mx-auto w-full max-w-[60vw] translate-x-[2vw] space-y-6">
             {messages.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <p className="text-center text-muted">
+                <p className="text-center text-lg text-muted">
                   Ask me anything about the Bhagavad Gita...
                 </p>
               </div>
@@ -106,8 +123,14 @@ export default function ChatPage() {
         </div>
 
         <div className="sticky bottom-0 bg-background/86 px-0 py-5 backdrop-blur-xl">
-          <div className="mx-auto w-full max-w-[60vw]">
-            <ChatInput compact onSubmit={handleSubmit} disabled={isLoading} />
+          <div className="mx-auto w-full max-w-[60vw] translate-x-[2vw]">
+            <ChatInput
+              compact
+              onSubmit={handleSubmit}
+              onStop={handleStopGeneration}
+              isGenerating={isLoading}
+              disabled={isLoading}
+            />
           </div>
         </div>
       </main>

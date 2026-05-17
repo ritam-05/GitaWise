@@ -13,7 +13,7 @@ export function PromptSuggestions() {
         <Link
           key={prompt}
           href={`/chat?q=${encodeURIComponent(prompt)}`}
-          className="rounded-full border border-border bg-surface px-3 py-2 text-sm text-secondary transition-colors hover:bg-card hover:text-foreground"
+          className="rounded-full border border-border bg-surface px-3 py-2 text-[15px] text-secondary transition-colors hover:bg-card hover:text-foreground"
         >
           {prompt}
         </Link>

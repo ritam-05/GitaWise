@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import math
 
+logger = logging.getLogger(__name__)
+logger.info("[RERANKER] Module starting...")
+
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+logger.info("[RERANKER] Torch imported")
 
 from .config import QueryEngineConfig, get_logger
+logger.info("[RERANKER] Config imported")
+from .reranker_model import get_reranker_model, get_reranker_tokenizer
+logger.info("[RERANKER] Reranker model functions imported (lazy)")
 from .models import RetrievedVerse
+logger.info("[RERANKER] Models imported")
 
 LOGGER = get_logger(__name__)
+logger.info("[RERANKER] ✓ Module fully initialized")
 
 
 class GlobalVerseReranker:
@@ -18,13 +27,9 @@ class GlobalVerseReranker:
 
     def __init__(self, config: QueryEngineConfig) -> None:
         self.config = config
+        # Models are loaded at app startup, not per-request
+        # Get device from singleton (same as used during initialization)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.tokenizer = AutoTokenizer.from_pretrained(config.reranker_model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            config.reranker_model_name
-        )
-        self.model.to(self.device)
-        self.model.eval()
 
     def rerank(
         self,
@@ -36,34 +41,52 @@ class GlobalVerseReranker:
             return []
 
         limit = top_k or self.config.final_top_k
+
+        # Step 1: deduplicate merged candidates
         deduplicated = self._deduplicate(candidates)
-        rerank_query = self._build_rerank_query(original_query, deduplicated)
-        passages = [self._candidate_text(item) for item in deduplicated]
+
+        # Step 2: fast embedding-based filter using retrieval_score produced by Qdrant
+        # Keep top-N candidates by retrieval_score to reduce cross-encoder cost.
+        filtered_by_embedding = sorted(
+            deduplicated, key=lambda item: (item.retrieval_score or 0.0), reverse=True
+        )[: self.config.reranker_embed_filter_top_k]
+
+        # Step 3: build concise rerank query and score pairs using cross-encoder
+        rerank_query = self._build_rerank_query(original_query, filtered_by_embedding)
+        passages = [self._candidate_text(item) for item in filtered_by_embedding]
         scores = self._score_pairs(rerank_query, passages)
 
-        for item, score in zip(deduplicated, scores):
+        # Attach scores back to the filtered items
+        for item, score in zip(filtered_by_embedding, scores):
             item.rerank_score = score
+            # Combine signals: use rerank score as primary but preserve retrieval_score
             item.score = score
 
+        # Final ranking: prefer rerank score, break ties with retrieval_score
         ranked = sorted(
-            deduplicated,
+            filtered_by_embedding,
             key=lambda item: (item.score, item.retrieval_score or 0.0),
             reverse=True,
         )[:limit]
 
         LOGGER.info(
-            "Reranked verses: %s",
+            "Hybrid reranked verses (top %s of %s): %s",
+            limit,
+            len(filtered_by_embedding),
             [f"{item.chapter}.{item.verse} ({item.score:.4f})" for item in ranked],
         )
         return ranked
 
     def _score_pairs(self, query: str, passages: list[str]) -> list[float]:
+        """Score query-passage pairs using the singleton reranker model."""
+        model = get_reranker_model()
+        tokenizer = get_reranker_tokenizer()
         all_scores: list[float] = []
 
         for start in range(0, len(passages), self.config.reranker_batch_size):
             batch_passages = passages[start : start + self.config.reranker_batch_size]
             pairs = [[query, passage] for passage in batch_passages]
-            inputs = self.tokenizer(
+            inputs = tokenizer(
                 pairs,
                 padding=True,
                 truncation=True,
@@ -73,7 +96,7 @@ class GlobalVerseReranker:
             inputs = {key: value.to(self.device) for key, value in inputs.items()}
 
             with torch.no_grad():
-                logits = self.model(**inputs, return_dict=True).logits.view(-1).float()
+                logits = model(**inputs, return_dict=True).logits.view(-1).float()
 
             all_scores.extend(self._normalize_scores(logits.cpu().tolist()))
 
@@ -81,6 +104,7 @@ class GlobalVerseReranker:
 
     @staticmethod
     def _normalize_scores(raw_scores: list[float]) -> list[float]:
+        """Sigmoid normalization for cross-encoder scores."""
         return [1.0 / (1.0 + math.exp(-float(score))) for score in raw_scores]
 
     def _build_rerank_query(self, original_query: str, candidates: list[RetrievedVerse]) -> str:

@@ -25,7 +25,7 @@ export function CitationCard({
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-full bg-surface/50 px-2.5 py-1 text-[13px] font-medium text-secondary transition hover:bg-surface hover:text-foreground"
+        className="inline-flex items-center gap-1.5 rounded-full bg-surface/50 px-2.5 py-1 text-[14px] font-medium text-secondary transition hover:bg-surface hover:text-foreground"
       >
         <span>Gita {chapter}.{verse}</span>
         {expanded && (
@@ -57,16 +57,16 @@ export function CitationCard({
             className="overflow-hidden"
           >
             <div className="mt-1.5 rounded-2xl bg-surface/60 p-3 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
-              <blockquote className="text-[13px] leading-6 italic text-secondary">
+              <blockquote className="text-[14px] leading-6 italic text-secondary">
                 {shloka}
               </blockquote>
-              <p className="mt-2 text-[12px] leading-5 text-muted">{meaning}</p>
+              <p className="mt-2 text-[13px] leading-5 text-muted">{meaning}</p>
               {tags.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-full bg-surface/80 px-2 py-0.5 text-[11px] uppercase tracking-[0.08em] text-muted"
+                      className="rounded-full bg-surface/80 px-2 py-0.5 text-[12px] uppercase tracking-[0.08em] text-muted"
                     >
                       {tag}
                     </span>

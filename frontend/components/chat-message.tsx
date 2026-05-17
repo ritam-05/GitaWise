@@ -39,8 +39,8 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
           className={cn(
             "whitespace-pre-wrap",
             isUser
-              ? "text-sm leading-6 text-foreground"
-              : "text-[15px] leading-[1.65] text-foreground",
+              ? "text-[15px] leading-6 text-foreground"
+              : "text-[16px] leading-[1.65] text-foreground",
           )}
         >
           {content}

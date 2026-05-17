@@ -48,6 +48,19 @@ class EmotionResult(BaseModel):
     emotion: EmotionLabel
 
 
+class ProblemWithEmotion(BaseModel):
+    """Combined problem and emotion from unified analysis."""
+
+    problem: str = Field(..., min_length=3, description="Distinct philosophical concern.")
+    emotions: list[EmotionLabel] = Field(default_factory=list, min_length=1, max_length=3)
+
+
+class CombinedAnalysisResult(BaseModel):
+    """Result of unified problem decomposition and emotion detection in one LLM call."""
+
+    problems: list[ProblemWithEmotion] = Field(default_factory=list)
+
+
 class EmotionNormalizationResult(BaseModel):
     """Canonical emotion mapping for a raw or user-supplied emotion."""
 

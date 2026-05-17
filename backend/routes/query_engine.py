@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger(__name__)
+logger.info("[ROUTES] Query engine routes module starting...")
+
 from backend.query_engine import AdaptiveGitaEngine, GitaQueryEngine
+
+logger.info("[ROUTES] ✓ Query engine modules imported")
 
 router = APIRouter(prefix="/query-engine", tags=["query-engine"])
 

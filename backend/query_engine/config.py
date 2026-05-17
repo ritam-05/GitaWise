@@ -30,6 +30,11 @@ class QueryEngineConfig(BaseModel):
     groq_temperature: float = 0.0
     groq_max_retries: int = 2
     reranker_batch_size: int = 16
+    # When performing hybrid reranking we first filter by embedding similarity
+    # using the retriever's scores and then LLM-rerank the top N candidates.
+    reranker_embed_filter_top_k: int = 20
+    # Number of top contexts (chunks) to include in the final generation prompt.
+    generation_context_top_k: int = 3
     log_level: str = "INFO"
 
     @field_validator("groq_api_key", "qdrant_api_key", "qdrant_endpoint")
@@ -52,6 +57,20 @@ class QueryEngineConfig(BaseModel):
     def _validate_final_top_k(cls, value: int) -> int:
         if not 1 <= value <= 8:
             raise ValueError("final_top_k must be between 1 and 8.")
+        return value
+
+    @field_validator("reranker_embed_filter_top_k")
+    @classmethod
+    def _validate_reranker_embed_filter_top_k(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("reranker_embed_filter_top_k must be greater than 0.")
+        return value
+
+    @field_validator("generation_context_top_k")
+    @classmethod
+    def _validate_generation_context_top_k(cls, value: int) -> int:
+        if not 1 <= value <= 8:
+            raise ValueError("generation_context_top_k must be between 1 and 8.")
         return value
 
     @field_validator("retrieval_confidence_threshold")

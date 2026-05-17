@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npx concurrently -k -n frontend,backend -c blue,green \"next dev\" \"cd .. && python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload\"",
+    "dev": "npx concurrently -k -n frontend,backend -c blue,green \"next dev\" \"cd .. && python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend\"",
     "dev:frontend": "next dev",
     "build": "next build",
     "start": "next start",

@@ -28,8 +28,22 @@ qdrant-client
 # Embeddings & Reranking
 # =========================
 sentence-transformers
-transformers
-torch
+transformers>=4.35.0
+# Use GPU-enabled PyTorch wheels when running on a CUDA-capable machine.
+# The lines below target CUDA 12.1 (cu121). Uncomment the GPU set for GPU installs
+# and comment out the CPU set. You may need to change the CUDA tag to match your GPU.
+--extra-index-url https://download.pytorch.org/whl/cu121
+# GPU (CUDA 12.1) - uncomment these for GPU-enabled environment
+torch==2.2.2+cu121
+torchvision==0.15.2+cu121
+torchaudio==2.2.2+cu121
+
+# CPU-only fallback (comment out the GPU lines above and uncomment these for CPU installs)
+# torch==2.2.2
+# torchvision==0.15.2
+# torchaudio==2.2.2
+
+sentence-transformers>=2.2.2
 FlagEmbedding
 
 # =========================

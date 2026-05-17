@@ -123,6 +123,30 @@ ALLOWED_EMOTIONS: tuple[EmotionLabel, ...] = (
     "frustration",
 )
 
+COMBINED_ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
+    """Analyze the query into problems with emotions. Return STRICT JSON ONLY.
+
+Rules:
+1. Identify 1-3 distinct philosophical/emotional concerns.
+2. For each problem, assign 1-3 emotions from: {allowed_emotions}
+3. Use only allowed emotions. If none fit, use empty list.
+4. Problems must be concise and semantically unique.
+5. Keep original wording essence.
+6. If query is generic/informational with no emotional content, set emotions to ["none"].
+
+Output ONLY this JSON:
+{{
+  "problems": [
+    {{
+      "problem": "concise concern",
+      "emotions": ["emotion1", "emotion2"]
+    }}
+  ]
+}}
+
+Query: {query}"""
+)
+
 DECOMPOSITION_PROMPT = ChatPromptTemplate.from_template(
     """You are a philosophical query analyst for a Bhagavad Gita retrieval system.
 
@@ -544,6 +568,14 @@ def render_decomposition_prompt(query: str) -> str:
 
 def render_routing_prompt(query: str) -> str:
     return ROUTING_PROMPT.format_messages(query=query)[0].content
+
+
+def render_combined_analysis_prompt(query: str) -> str:
+    """Render the unified decomposition + emotion detection prompt."""
+    return COMBINED_ANALYSIS_PROMPT.format_messages(
+        query=query,
+        allowed_emotions=", ".join(ALLOWED_EMOTIONS),
+    )[0].content
 
 
 def render_emotion_prompt(problems: list[str]) -> str:

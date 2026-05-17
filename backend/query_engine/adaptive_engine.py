@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger(__name__)
+logger.info("[ADAPTIVE] Module starting...")
+
 from .config import QueryEngineConfig, get_logger, load_query_engine_config
+logger.info("[ADAPTIVE] Config imported")
 from .engine import GitaQueryEngine
+logger.info("[ADAPTIVE] Engine imported")
 from .generator import DirectResponseGenerator
+logger.info("[ADAPTIVE] Generator imported")
 from .models import AdaptiveAnswer, EmotionResult, Problem, RetrievalQuery, RetrievedVerse
+logger.info("[ADAPTIVE] Models imported")
 
 
 class AdaptiveGitaEngine:
@@ -50,8 +58,7 @@ class AdaptiveGitaEngine:
                 retrieval_queries=retrieval_queries,
             )
 
-        problems = self.query_engine.decompose_query(user_query)
-        emotions = self.query_engine.detect_emotions(problems)
+        problems, emotions = self.query_engine.analyze_query(user_query)
         retrieval_queries = self.query_engine.build_queries(emotions)
         return self._run_grounded_route(
             user_query=user_query,
