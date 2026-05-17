@@ -205,7 +205,13 @@ def answer_query(request: Request, payload: QueryEngineRequest) -> GeneratedAnsw
         ) from exc
 
     try:
-        generated = engine.answer(payload.query)
+        # Use session-aware answer if session_id is provided
+        session_id = payload.session_id or getattr(request.state, "session_id", None)
+        if session_id and hasattr(engine, 'answer_with_session'):
+            generated = engine.answer_with_session(payload.query, session_id)
+        else:
+            generated = engine.answer(payload.query)
+        
         return GeneratedAnswerResponse(
             original_query=generated.original_query,
             route=generated.route,

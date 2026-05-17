@@ -60,8 +60,66 @@ class CombinedAnalyzer:
         try:
             result = CombinedAnalysisResult.model_validate(payload)
         except ValidationError as exc:
-            self.logger.error("Invalid combined analysis payload: %s", payload)
-            raise ValueError(f"Invalid combined analysis response: {exc}") from exc
+            # Attempt to sanitize the payload by normalizing unknown emotions
+            self.logger.warning("Invalid combined analysis payload, attempting sanitization: %s", payload)
+
+            try:
+                ALLOWED = {
+                    "fear",
+                    "confusion",
+                    "grief",
+                    "anger",
+                    "anxiety",
+                    "attachment",
+                    "doubt",
+                    "guilt",
+                    "loneliness",
+                    "hopelessness",
+                    "restlessness",
+                    "peace",
+                    "courage",
+                    "surrender",
+                    "clarity",
+                    "discipline",
+                    "frustration",
+                    "none",
+                }
+
+                sanitized = {**(payload or {})} if isinstance(payload, dict) else {}
+                problems = sanitized.get("problems")
+                if isinstance(problems, list):
+                    new_problems = []
+                    for p in problems:
+                        if not isinstance(p, dict):
+                            continue
+                        probs = p.copy()
+                        emotions = probs.get("emotions")
+                        if isinstance(emotions, list):
+                            cleaned = []
+                            for e in emotions:
+                                s = (e or "").strip().lower()
+                                if s in ALLOWED:
+                                    if s not in cleaned:
+                                        cleaned.append(s)
+                                else:
+                                    # map unknown to 'none' (avoid duplication)
+                                    if "none" not in cleaned:
+                                        cleaned.append("none")
+                            probs["emotions"] = cleaned or ["none"]
+                        else:
+                            probs["emotions"] = ["none"]
+                        # Ensure problem text exists
+                        if not probs.get("problem"):
+                            probs["problem"] = "generic informational query"
+                        new_problems.append(probs)
+                    sanitized["problems"] = new_problems
+
+                # Retry validation with sanitized payload
+                result = CombinedAnalysisResult.model_validate(sanitized)
+                self.logger.info("Sanitized combined analysis payload validated successfully.")
+            except Exception:
+                self.logger.error("Sanitization failed for combined analysis payload: %s", payload)
+                raise ValueError(f"Invalid combined analysis response: {exc}") from exc
 
         if not result.problems:
             self.logger.warning("Combined analyzer returned no problems for query: %s", query)

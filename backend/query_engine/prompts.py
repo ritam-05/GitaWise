@@ -113,6 +113,9 @@ STRUCTURE (natural, not labeled):
 
 CITATIONS: Handled separately by the system. Do not add a "Referenced Verses" section.
 
+CONVERSATION CONTEXT (if available, use to inform response continuity):
+{conversation_context}
+
 Inputs:
 Query: {user_query}
 Problems: {problems_json}
@@ -133,6 +136,9 @@ Rules by route:
 - gita_rag (no context): answer carefully, note uncertainty, no fake verse references.
 
 Tone: natural, calm, concise. Longer only if user asks. No JSON output.
+
+CONVERSATION CONTEXT (if available, maintain continuity and reference previous exchanges):
+{conversation_context}
 
 Query: {user_query}
 """
@@ -159,18 +165,67 @@ def render_ground_response_prompt(
     problems: list[dict[str, str]],
     emotions: list[dict[str, str]],
     contexts: list[dict[str, object]],
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
+    """
+    Render ground response prompt with optional conversation context.
+    
+    Args:
+        user_query: Current user query
+        problems: Identified problems
+        emotions: Detected emotions
+        contexts: Retrieved Gita contexts
+        conversation_history: Optional list of {"role": "user"/"assistant", "content": "..."} dicts
+    """
+    # Format conversation history if provided
+    conversation_context = ""
+    if conversation_history:
+        context_lines = ["PREVIOUS CONVERSATION:"]
+        for turn in conversation_history[-5:]:  # Keep last 5 turns for context
+            role = turn.get("role", "unknown").upper()
+            content = turn.get("content", "").strip()
+            if content:
+                context_lines.append(f"{role}: {content[:200]}")  # Truncate long messages
+        conversation_context = "\n".join(context_lines) if context_lines else ""
+    
     return GROUND_RESPONSE_PROMPT.format_messages(
         user_query=user_query,
         problems_json=json.dumps(problems, ensure_ascii=True),
         emotions_json=json.dumps(emotions, ensure_ascii=True),
         contexts_json=json.dumps(contexts, ensure_ascii=True),
+        conversation_context=conversation_context,
     )[0].content
 
 
-def render_direct_response_prompt(user_query: str, route: str, fallback_note: str) -> str:
+def render_direct_response_prompt(
+    user_query: str,
+    route: str,
+    fallback_note: str,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> str:
+    """
+    Render direct response prompt with optional conversation context.
+    
+    Args:
+        user_query: Current user query
+        route: Selected route
+        fallback_note: Route-specific fallback note
+        conversation_history: Optional list of {"role": "user"/"assistant", "content": "..."} dicts
+    """
+    # Format conversation history if provided
+    conversation_context = ""
+    if conversation_history:
+        context_lines = ["PREVIOUS CONVERSATION:"]
+        for turn in conversation_history[-5:]:  # Keep last 5 turns for context
+            role = turn.get("role", "unknown").upper()
+            content = turn.get("content", "").strip()
+            if content:
+                context_lines.append(f"{role}: {content[:200]}")  # Truncate long messages
+        conversation_context = "\n".join(context_lines) if context_lines else ""
+    
     return DIRECT_RESPONSE_PROMPT.format_messages(
         user_query=user_query,
         route=route,
         fallback_note=fallback_note,
+        conversation_context=conversation_context,
     )[0].content

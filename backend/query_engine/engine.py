@@ -65,10 +65,22 @@ class GitaQueryEngine:
         self.session_cache: Optional[SessionCache] = None
         if CACHE_AVAILABLE and self.cache_manager is None:
             self.cache_manager = CacheManager()
-            self.session_cache = SessionCache(self.cache_manager)
+            self.session_cache = SessionCache(
+                self.cache_manager,
+                session_ttl_seconds=self.config.session_ttl_seconds,
+                session_max_stored_turns=self.config.session_max_stored_turns,
+                session_context_turns=self.config.session_context_turns,
+                session_cleanup_interval_seconds=self.config.session_cleanup_interval_seconds,
+            )
             self.logger.info("[ENGINE] ✓ Cache initialized (session-aware, multi-layer)")
         elif CACHE_AVAILABLE and self.cache_manager:
-            self.session_cache = SessionCache(self.cache_manager)
+            self.session_cache = SessionCache(
+                self.cache_manager,
+                session_ttl_seconds=self.config.session_ttl_seconds,
+                session_max_stored_turns=self.config.session_max_stored_turns,
+                session_context_turns=self.config.session_context_turns,
+                session_cleanup_interval_seconds=self.config.session_cleanup_interval_seconds,
+            )
             self.logger.info("[ENGINE] ✓ Using provided cache manager")
         else:
             self.logger.warning("[ENGINE] Running without caching (cache_available=%s)", CACHE_AVAILABLE)

@@ -38,6 +38,25 @@ class QueryEngineConfig(BaseModel):
     reranker_embed_filter_top_k: int = 20
     # Number of top contexts (chunks) to include in the final generation prompt.
     generation_context_top_k: int = 3
+    
+    # Session configuration (conversation chaining)
+    session_ttl_seconds: int = Field(
+        default_factory=lambda: int(os.getenv("SESSION_TTL_SECONDS", "3600")),
+        description="Session time-to-live in seconds (default: 1 hour)"
+    )
+    session_max_stored_turns: int = Field(
+        default_factory=lambda: int(os.getenv("SESSION_MAX_STORED_TURNS", "10")),
+        description="Maximum conversation turns to store in session memory"
+    )
+    session_context_turns: int = Field(
+        default_factory=lambda: int(os.getenv("SESSION_CONTEXT_TURNS", "5")),
+        description="Number of recent turns to include in LLM context"
+    )
+    session_cleanup_interval_seconds: int = Field(
+        default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_SECONDS", "1800")),
+        description="How often to cleanup expired sessions (default: 30 minutes)"
+    )
+    
     log_level: str = "INFO"
 
     @field_validator("groq_api_key", "qdrant_api_key", "qdrant_endpoint")
@@ -81,6 +100,38 @@ class QueryEngineConfig(BaseModel):
     def _validate_threshold(cls, value: float) -> float:
         if not 0.0 <= value <= 1.0:
             raise ValueError("retrieval_confidence_threshold must be between 0.0 and 1.0.")
+        return value
+
+    @field_validator("session_ttl_seconds")
+    @classmethod
+    def _validate_session_ttl(cls, value: int) -> int:
+        if value < 60:
+            raise ValueError("session_ttl_seconds must be at least 60 seconds (1 minute).")
+        if value > 86400:
+            raise ValueError("session_ttl_seconds must not exceed 86400 seconds (24 hours).")
+        return value
+
+    @field_validator("session_max_stored_turns")
+    @classmethod
+    def _validate_session_max_turns(cls, value: int) -> int:
+        if not 5 <= value <= 100:
+            raise ValueError("session_max_stored_turns must be between 5 and 100.")
+        return value
+
+    @field_validator("session_context_turns")
+    @classmethod
+    def _validate_session_context_turns(cls, value: int) -> int:
+        if not 1 <= value <= 20:
+            raise ValueError("session_context_turns must be between 1 and 20.")
+        return value
+
+    @field_validator("session_cleanup_interval_seconds")
+    @classmethod
+    def _validate_session_cleanup_interval(cls, value: int) -> int:
+        if value < 60:
+            raise ValueError("session_cleanup_interval_seconds must be at least 60 seconds.")
+        if value > 86400:
+            raise ValueError("session_cleanup_interval_seconds must not exceed 86400 seconds.")
         return value
 
 
