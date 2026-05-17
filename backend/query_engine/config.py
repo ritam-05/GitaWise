@@ -20,6 +20,9 @@ class QueryEngineConfig(BaseModel):
     qdrant_api_key: str = Field(default_factory=lambda: os.getenv("QDRANT_API_KEY", ""))
     qdrant_endpoint: str = Field(default_factory=lambda: os.getenv("QDRANT_ENDPOINT", ""))
     groq_model_name: str = "llama-3.3-70b-versatile"
+    # OPTIMIZED: Smaller model for extraction/classification tasks (analyzer, router)
+    # This reduces token usage and cost while maintaining quality for structured extraction
+    groq_analyzer_model_name: str = "llama-3.1-8b-instant"
     embedding_model_name: str = "BAAI/bge-large-en-v1.5"
     reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
     qdrant_collection_name: str = "gita_verses"

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class QueryEngineRequest(BaseModel):
     """Request payload for query-engine endpoints."""
 
     query: str = Field(..., min_length=3, description="User query to analyze and retrieve against.")
+    session_id: Optional[str] = Field(None, description="Optional session ID for cache scoping.")
 
 
 class QueryAnalysisResponse(BaseModel):
@@ -66,15 +68,15 @@ class GeneratedAnswerResponse(BaseModel):
 
 
 @lru_cache(maxsize=1)
-def get_query_engine() -> GitaQueryEngine:
+def get_query_engine(cache_manager: Optional[object] = None) -> GitaQueryEngine:
     """Create and cache the query engine lazily for API use."""
-    return GitaQueryEngine()
+    return GitaQueryEngine(cache_manager=cache_manager)
 
 
 @lru_cache(maxsize=1)
-def get_adaptive_engine() -> AdaptiveGitaEngine:
+def get_adaptive_engine(cache_manager: Optional[object] = None) -> AdaptiveGitaEngine:
     """Create and cache the adaptive route-aware engine for final answers."""
-    return AdaptiveGitaEngine()
+    return AdaptiveGitaEngine(cache_manager=cache_manager)
 
 
 @router.post("/analyze", response_model=QueryAnalysisResponse)
@@ -163,10 +165,11 @@ def normalize_emotion(payload: EmotionNormalizationRequest) -> EmotionNormalizat
 
 
 @router.post("/run")
-def run_query_engine(payload: QueryEngineRequest) -> dict:
+def run_query_engine(request: Request, payload: QueryEngineRequest) -> dict:
     """Execute the full query-engine pipeline and return grounded context."""
     try:
-        engine = get_query_engine()
+        cache_manager = getattr(request.app.state, "cache_manager", None)
+        engine = get_query_engine(cache_manager=cache_manager)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -174,7 +177,11 @@ def run_query_engine(payload: QueryEngineRequest) -> dict:
         ) from exc
 
     try:
-        response = engine.run(payload.query)
+        session_id = payload.session_id or getattr(request.state, "session_id", None)
+        if session_id and engine.session_cache:
+            response = engine.run_with_session(payload.query, session_id)
+        else:
+            response = engine.run(payload.query)
         return response.model_dump()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -186,10 +193,11 @@ def run_query_engine(payload: QueryEngineRequest) -> dict:
 
 
 @router.post("/answer", response_model=GeneratedAnswerResponse)
-def answer_query(payload: QueryEngineRequest) -> GeneratedAnswerResponse:
+def answer_query(request: Request, payload: QueryEngineRequest) -> GeneratedAnswerResponse:
     """Run retrieval and generate a grounded philosophical response."""
     try:
-        engine = get_adaptive_engine()
+        cache_manager = getattr(request.app.state, "cache_manager", None)
+        engine = get_adaptive_engine(cache_manager=cache_manager)
     except Exception as exc:
         raise HTTPException(
             status_code=500,

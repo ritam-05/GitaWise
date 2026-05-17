@@ -31,6 +31,12 @@ class CombinedAnalyzer:
     def analyze(self, query: str) -> tuple[list[Problem], list[EmotionResult]]:
         """
         Perform unified analysis: decompose query and detect emotions in one call.
+        
+        OPTIMIZED:
+        - Uses smaller model (llama-3.1-8b-instant instead of 70b)
+        - Compact, deterministic prompt (token-optimized)
+        - Single LLM call instead of separate pipeline
+        - Graceful fallback for failures
 
         Args:
             query: User's query string.
@@ -45,7 +51,11 @@ class CombinedAnalyzer:
             raise ValueError("Query must not be empty.")
 
         # Single LLM call for both decomposition and emotion detection
-        payload = self.groq_client.invoke_json(render_combined_analysis_prompt(query))
+        # OPTIMIZED: Use smaller analyzer model (llama-3.1-8b-instant) for extraction tasks
+        payload = self.groq_client.invoke_json(
+            render_combined_analysis_prompt(query),
+            model_name=self.config.groq_analyzer_model_name,  # Use smaller model for extraction
+        )
 
         try:
             result = CombinedAnalysisResult.model_validate(payload)

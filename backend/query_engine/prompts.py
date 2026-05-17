@@ -8,101 +8,6 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from .models import EmotionLabel
 
-ROUTING_PROMPT = ChatPromptTemplate.from_template(
-    """You are the adaptive routing engine for GitaWise, an AI-powered Bhagavad Gita philosophical companion.
-
-Your task:
-Analyze the user's query and decide which response pipeline should handle it.
-
-IMPORTANT:
-You are ONLY a router.
-You are NOT generating the final answer.
-
-AVAILABLE ROUTES
-
-1. generic_chat
-Use when:
-- greetings
-- casual conversation
-- simple chat
-- non-philosophical generic questions
-- technical questions
-- coding questions
-- general knowledge
-- lightweight interactions
-- small talk
-
-2. philosophical_guidance
-Use when:
-- life struggles
-- confusion
-- purpose
-- discipline
-- attachment
-- relationships
-- fear
-- self-doubt
-- emotional conflict
-- inner balance
-- practical wisdom seeking
-
-3. emotion_guidance
-Use when:
-- emotionally intense personal struggles
-- anxiety
-- grief
-- loneliness
-- hopelessness
-- emotional suffering
-- deep emotional distress
-
-4. gita_rag
-Use when:
-- explicit Bhagavad Gita questions
-- verse requests
-- philosophical interpretation requests
-- Krishna/Arjuna references
-- chapter/verse questions
-- direct scripture-related queries
-
-ROUTING RULES
-
-1. Return ONLY ONE route.
-2. Choose the MOST dominant intent.
-3. Prefer philosophical_guidance over generic_chat if the query contains meaningful emotional or existential struggle.
-4. Prefer gita_rag if the query explicitly references:
-- Bhagavad Gita
-- Gita
-- Krishna
-- Arjuna
-- chapter/verse
-- karma yoga
-- dharma
-- scripture interpretation
-5. Prefer emotion_guidance only when emotional distress is strongly dominant.
-6. Do NOT over-route simple greetings into RAG.
-
-OUTPUT FORMAT
-
-Return STRICT JSON ONLY.
-
-Example:
-{{
-  "route": "philosophical_guidance"
-}}
-
-Allowed values ONLY:
-- generic_chat
-- philosophical_guidance
-- emotion_guidance
-- gita_rag
-
-USER QUERY
-
-{query}
-"""
-)
-
 ALLOWED_EMOTIONS: tuple[EmotionLabel, ...] = (
     "fear",
     "confusion",
@@ -124,86 +29,28 @@ ALLOWED_EMOTIONS: tuple[EmotionLabel, ...] = (
 )
 
 COMBINED_ANALYSIS_PROMPT = ChatPromptTemplate.from_template(
-    """Analyze the query into problems with emotions. Return STRICT JSON ONLY.
+    """Analyze the query. Identify 1-3 problems and their emotions.
 
-Rules:
-1. Identify 1-3 distinct philosophical/emotional concerns.
-2. For each problem, assign 1-3 emotions from: {allowed_emotions}
-3. Use only allowed emotions. If none fit, use empty list.
-4. Problems must be concise and semantically unique.
-5. Keep original wording essence.
-6. If query is generic/informational with no emotional content, set emotions to ["none"].
+Allowed emotions: {allowed_emotions}
 
-Output ONLY this JSON:
+Return STRICT JSON ONLY:
 {{
   "problems": [
     {{
-      "problem": "concise concern",
+      "problem": "concern statement",
       "emotions": ["emotion1", "emotion2"]
     }}
   ]
 }}
 
+Rules:
+1. Problems must be distinct and concise.
+2. Use only allowed emotions. If none fit, use empty list.
+3. Max 3 emotions per problem. Prefer 1-2.
+4. For generic/informational queries: "emotions": ["none"]
+5. Keep problems under 10 words if possible.
+
 Query: {query}"""
-)
-
-DECOMPOSITION_PROMPT = ChatPromptTemplate.from_template(
-    """You are a philosophical query analyst for a Bhagavad Gita retrieval system.
-
-Task:
-Decompose the user query into distinct philosophical or emotional concerns that should be retrieved separately.
-
-Rules:
-- Output valid JSON only.
-- Do not answer the user.
-- Do not include explanation outside JSON.
-- Identify 1 to 4 distinct problems.
-- Each problem must be concise, semantically unique, and faithful to the user wording.
-- Preserve philosophical nuance such as duty, detachment, discipline, grief, surrender, or doubt.
-- Avoid near-duplicate concerns.
-- If the query expresses only one concern, return one problem.
-
-Output schema:
-{{
-  "problems": [
-    {{"problem": "string"}}
-  ]
-}}
-
-User query:
-{query}
-"""
-)
-
-EMOTION_PROMPT = ChatPromptTemplate.from_template(
-    """You are an emotion classifier for a Bhagavad Gita retrieval engine.
-
-Task:
-For each problem, choose exactly one dominant emotion from the allowed set.
-
-Allowed emotions:
-{allowed_emotions}
-
-Rules:
-- Output valid JSON only.
-- Do not invent new emotion labels.
-- Use the most retrieval-useful dominant emotion, not a long explanation.
-- Keep the original problem text unchanged.
-- If multiple emotions are plausible, choose the one most central to the concern.
-
-Output schema:
-{{
-  "results": [
-    {{
-      "problem": "string",
-      "emotion": "one allowed emotion label"
-    }}
-  ]
-}}
-
-Problems JSON:
-{problems_json}
-"""
 )
 
 EMOTION_NORMALIZATION_PROMPT = ChatPromptTemplate.from_template(
@@ -236,37 +83,6 @@ Rules:
 
 Input emotion:
 {emotion}
-"""
-)
-
-QUERY_BUILDER_PROMPT = ChatPromptTemplate.from_template(
-    """You are building dense retrieval queries for a Bhagavad Gita verse search engine.
-
-Task:
-Convert each problem and emotion into one concise semantic retrieval query optimized for embedding search.
-
-Rules:
-- Output valid JSON only.
-- Do not answer the user.
-- Keep each retrieval query concise, semantically rich, and natural.
-- Blend the problem with spiritually relevant retrieval cues like duty, detachment, self-mastery, surrender, steadiness, clarity, courage, discipline, action, or wisdom only when appropriate.
-- The emotion should enhance the query but not dominate it.
-- Keep the original problem and emotion unchanged.
-- Avoid duplicate or trivial queries.
-
-Output schema:
-{{
-  "queries": [
-    {{
-      "problem": "string",
-      "emotion": "allowed emotion",
-      "query": "optimized retrieval query"
-    }}
-  ]
-}}
-
-Inputs JSON:
-{items_json}
 """
 )
 
@@ -562,32 +378,11 @@ User query:
 )
 
 
-def render_decomposition_prompt(query: str) -> str:
-    return DECOMPOSITION_PROMPT.format_messages(query=query)[0].content
-
-
-def render_routing_prompt(query: str) -> str:
-    return ROUTING_PROMPT.format_messages(query=query)[0].content
-
-
 def render_combined_analysis_prompt(query: str) -> str:
     """Render the unified decomposition + emotion detection prompt."""
     return COMBINED_ANALYSIS_PROMPT.format_messages(
         query=query,
         allowed_emotions=", ".join(ALLOWED_EMOTIONS),
-    )[0].content
-
-
-def render_emotion_prompt(problems: list[str]) -> str:
-    return EMOTION_PROMPT.format_messages(
-        allowed_emotions=", ".join(ALLOWED_EMOTIONS),
-        problems_json=json.dumps([{"problem": problem} for problem in problems], ensure_ascii=True),
-    )[0].content
-
-
-def render_query_builder_prompt(items: list[dict[str, str]]) -> str:
-    return QUERY_BUILDER_PROMPT.format_messages(
-        items_json=json.dumps(items, ensure_ascii=True),
     )[0].content
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 logger.info("[ADAPTIVE] Module starting...")
 
@@ -15,14 +17,22 @@ logger.info("[ADAPTIVE] Generator imported")
 from .models import AdaptiveAnswer, EmotionResult, Problem, RetrievalQuery, RetrievedVerse
 logger.info("[ADAPTIVE] Models imported")
 
+# Import cache (optional)
+try:
+    from backend.cache import CacheManager
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    CacheManager = None
+
 
 class AdaptiveGitaEngine:
     """Hybrid orchestration layer that routes queries before any RAG work begins."""
 
-    def __init__(self, config: QueryEngineConfig | None = None) -> None:
+    def __init__(self, config: QueryEngineConfig | None = None, cache_manager: Optional[CacheManager] = None) -> None:
         self.config = config or load_query_engine_config()
         self.logger = get_logger(self.__class__.__name__, self.config.log_level)
-        self.query_engine = GitaQueryEngine(self.config)
+        self.query_engine = GitaQueryEngine(self.config, cache_manager=cache_manager)
         self.direct_generator = DirectResponseGenerator(self.query_engine.groq_client)
 
     def answer(self, user_query: str) -> AdaptiveAnswer:

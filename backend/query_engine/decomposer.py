@@ -11,15 +11,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .config import QueryEngineConfig, get_logger
 from .models import Problem
-from .prompts import render_decomposition_prompt
 
 LOGGER = get_logger(__name__)
-
-
-class DecompositionEnvelope(BaseModel):
-    """Expected LLM payload for decomposition."""
-
-    problems: list[Problem] = Field(default_factory=list)
 
 
 class GroqJSONClient:
@@ -29,12 +22,20 @@ class GroqJSONClient:
         self.config = config
         self.client = Groq(api_key=config.groq_api_key)
 
-    def invoke_json(self, prompt: str) -> dict[str, Any]:
+    def invoke_json(self, prompt: str, model_name: str | None = None) -> dict[str, Any]:
+        """
+        Invoke Groq with JSON response format.
+        
+        Args:
+            prompt: The prompt to send
+            model_name: Optional model override. Uses config.groq_model_name if not provided.
+        """
+        model = model_name or self.config.groq_model_name
         last_error: Exception | None = None
         for attempt in range(1, self.config.groq_max_retries + 2):
             try:
                 completion = self.client.chat.completions.create(
-                    model=self.config.groq_model_name,
+                    model=model,
                     temperature=self.config.groq_temperature,
                     response_format={"type": "json_object"},
                     messages=[
@@ -50,12 +51,20 @@ class GroqJSONClient:
 
         raise RuntimeError("Groq JSON invocation failed after retries.") from last_error
 
-    def invoke_text(self, prompt: str) -> str:
+    def invoke_text(self, prompt: str, model_name: str | None = None) -> str:
+        """
+        Invoke Groq with text response.
+        
+        Args:
+            prompt: The prompt to send
+            model_name: Optional model override. Uses config.groq_model_name if not provided.
+        """
+        model = model_name or self.config.groq_model_name
         last_error: Exception | None = None
         for attempt in range(1, self.config.groq_max_retries + 2):
             try:
                 completion = self.client.chat.completions.create(
-                    model=self.config.groq_model_name,
+                    model=model,
                     temperature=self.config.groq_temperature,
                     messages=[
                         {
@@ -81,34 +90,3 @@ class GroqJSONClient:
             if not match:
                 raise ValueError("LLM response did not contain a JSON object.")
             return json.loads(match.group(0))
-
-
-class QueryDecomposer:
-    """Decompose a user query into distinct retrieval-worthy problems."""
-
-    def __init__(self, groq_client: GroqJSONClient) -> None:
-        self.groq_client = groq_client
-
-    def decompose(self, query: str) -> list[Problem]:
-        if not query.strip():
-            raise ValueError("Cannot decompose an empty query.")
-
-        payload = self.groq_client.invoke_json(render_decomposition_prompt(query.strip()))
-        try:
-            envelope = DecompositionEnvelope.model_validate(payload)
-        except ValidationError as exc:
-            raise ValueError(f"Invalid decomposition payload: {payload}") from exc
-
-        unique_problems: list[Problem] = []
-        seen: set[str] = set()
-        for item in envelope.problems:
-            normalized = item.problem.strip().lower()
-            if normalized and normalized not in seen:
-                unique_problems.append(Problem(problem=item.problem.strip()))
-                seen.add(normalized)
-
-        if not unique_problems:
-            raise ValueError("Query decomposition produced no usable problems.")
-
-        LOGGER.info("Detected problems: %s", [problem.problem for problem in unique_problems])
-        return unique_problems

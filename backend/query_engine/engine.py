@@ -6,6 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 logger.info("[ENGINE_MODULE] Starting engine module imports...")
 
+from typing import Optional
+
 from .config import QueryEngineConfig, get_logger, load_query_engine_config
 logger.info("[ENGINE_MODULE] Config imported")
 from .combined_analyzer import CombinedAnalyzer
@@ -31,12 +33,21 @@ from .models import (
 logger.info("[ENGINE_MODULE] Models imported")
 from .query_builder import RetrievalQueryBuilder
 logger.info("[ENGINE_MODULE] RetrievalQueryBuilder imported")
+from .lightweight_router import LightweightRouter
+logger.info("[ENGINE_MODULE] LightweightRouter imported (OPTIMIZED: rules-based, zero LLM calls)")
 from .reranker import GlobalVerseReranker
 logger.info("[ENGINE_MODULE] GlobalVerseReranker imported")
 from .retriever import QdrantVerseRetriever
 logger.info("[ENGINE_MODULE] QdrantVerseRetriever imported (WATCH: this may hang on Qdrant connect)")
-from .router import QueryRouter
-logger.info("[ENGINE_MODULE] QueryRouter imported")
+
+# Import cache layer (optional, graceful degradation if not available)
+try:
+    from backend.cache import CacheManager, SessionCache
+    CACHE_AVAILABLE = True
+    logger.info("[ENGINE_MODULE] Cache layer imported")
+except ImportError:
+    CACHE_AVAILABLE = False
+    logger.info("[ENGINE_MODULE] Cache layer not available (proceeding without caching)")
 
 logger.info("[ENGINE_MODULE] ✓ All engine module imports completed")
 
@@ -44,16 +55,30 @@ logger.info("[ENGINE_MODULE] ✓ All engine module imports completed")
 class GitaQueryEngine:
     """Emotion-aware adaptive retrieval engine for Bhagavad Gita grounding."""
 
-    def __init__(self, config: QueryEngineConfig | None = None) -> None:
+    def __init__(self, config: QueryEngineConfig | None = None, cache_manager: Optional[CacheManager] = None) -> None:
         self.config = config or load_query_engine_config()
         self.logger = get_logger(self.__class__.__name__, self.config.log_level)
         self.logger.info("[ENGINE] ✓ Initializing GitaQueryEngine...")
+        
+        # Initialize caching if available
+        self.cache_manager = cache_manager
+        self.session_cache: Optional[SessionCache] = None
+        if CACHE_AVAILABLE and self.cache_manager is None:
+            self.cache_manager = CacheManager()
+            self.session_cache = SessionCache(self.cache_manager)
+            self.logger.info("[ENGINE] ✓ Cache initialized (session-aware, multi-layer)")
+        elif CACHE_AVAILABLE and self.cache_manager:
+            self.session_cache = SessionCache(self.cache_manager)
+            self.logger.info("[ENGINE] ✓ Using provided cache manager")
+        else:
+            self.logger.warning("[ENGINE] Running without caching (cache_available=%s)", CACHE_AVAILABLE)
+        
         self.logger.info("[ENGINE] Creating Groq client...")
         self.groq_client = GroqJSONClient(self.config)
         self.logger.info("[ENGINE] ✓ Groq client created")
-        self.logger.info("[ENGINE] Creating router...")
-        self.router = QueryRouter(self.groq_client)
-        self.logger.info("[ENGINE] ✓ Router created")
+        self.logger.info("[ENGINE] Creating lightweight router (OPTIMIZED: rules-based, zero LLM calls)...")
+        self.router = LightweightRouter()
+        self.logger.info("[ENGINE] ✓ Lightweight router created (no LLM overhead)")
         self.logger.info("[ENGINE] Creating combined analyzer...")
         self.combined_analyzer = CombinedAnalyzer(self.groq_client, self.config)
         self.logger.info("[ENGINE] ✓ Combined analyzer created")
@@ -63,9 +88,9 @@ class GitaQueryEngine:
         self.logger.info("[ENGINE] Creating generator...")
         self.generator = GroundedResponseGenerator(self.groq_client)
         self.logger.info("[ENGINE] ✓ Generator created")
-        self.logger.info("[ENGINE] Creating query builder...")
-        self.query_builder = RetrievalQueryBuilder(self.groq_client)
-        self.logger.info("[ENGINE] ✓ Query builder created")
+        self.logger.info("[ENGINE] Creating query builder (OPTIMIZED: programmatic, zero LLM calls)...")
+        self.query_builder = RetrievalQueryBuilder()  # No groq_client needed
+        self.logger.info("[ENGINE] ✓ Query builder created (no LLM overhead)")
         self.logger.info("[ENGINE] Creating retriever...")
         self.retriever = QdrantVerseRetriever(self.config)
         self.logger.info("[ENGINE] ✓ Retriever created")
@@ -175,4 +200,124 @@ class GitaQueryEngine:
             warnings=warnings,
         )
         self.logger.info("Query-engine pipeline completed with %s final contexts.", len(contexts))
+        return response
+
+    def run_with_session(self, user_query: str, session_id: str) -> EngineResponse:
+        """
+        Session-aware query pipeline with intelligent caching.
+        
+        Reuses cached decompositions, emotions, and retrievals within a session.
+        
+        Args:
+            user_query: User's query
+            session_id: Session identifier for cache scoping
+            
+        Returns:
+            EngineResponse with cached or fresh computations
+        """
+        if not user_query.strip():
+            raise ValueError("user_query must not be empty.")
+
+        if not self.session_cache:
+            self.logger.warning("[ENGINE] Session cache not available, falling back to regular run()")
+            return self.run(user_query)
+
+        self.logger.info("[ENGINE_SESSION] Processing query with session_id=%s", session_id)
+        warnings: list[str] = []
+
+        # Try to get cached decomposition and emotions
+        try:
+            cached_decomp = self.session_cache.get_cached_decomposition(user_query)
+            cached_emotions_list = self.session_cache.get_cached_emotions(user_query)
+            
+            if cached_decomp and cached_emotions_list:
+                self.logger.info("[ENGINE_SESSION] ✓ Cache hit: decomposition + emotions")
+                problems = [Problem(problem=p["problem"]) for p in cached_decomp]
+                emotions = [EmotionResult(problem=p, emotion=e) for p, e in zip([p["problem"] for p in cached_decomp], cached_emotions_list)]
+                warnings.append("used_cache:decomposition_emotions")
+            else:
+                # Run fresh analysis
+                self.logger.info("[ENGINE_SESSION] Cache miss: running fresh decomposition + emotion analysis")
+                problems, emotions = self.analyze_query(user_query)
+                
+                # Cache results
+                self.session_cache.cache_decomposition(
+                    session_id,
+                    user_query,
+                    [{"problem": p.problem} for p in problems],
+                )
+                self.session_cache.cache_emotions(
+                    session_id,
+                    user_query,
+                    [e.emotion for e in emotions],
+                )
+        except Exception as exc:
+            self.logger.exception("[ENGINE_SESSION] Analysis failed: %s", exc)
+            warnings.append(f"analysis_failed: {exc}")
+            problems = [Problem(problem="user query")]
+            emotions = [EmotionResult(problem="user query", emotion="none")]
+
+        # Build retrieval queries (programmatic, instant)
+        retrieval_queries = self.build_queries(emotions)
+
+        # Try to retrieve from cache
+        try:
+            cached_verses = None
+            for ret_q in retrieval_queries:
+                cached = self.session_cache.get_cached_retrieval(ret_q.query)
+                if cached:
+                    cached_verses = cached
+                    self.logger.info("[ENGINE_SESSION] ✓ Cache hit: %d retrieved verses", len(cached))
+                    warnings.append("used_cache:retrieval")
+                    break
+
+            if cached_verses:
+                retrieved_verses = [RetrievedVerse(**v) if isinstance(v, dict) else v for v in cached_verses]
+            else:
+                # Run fresh retrieval
+                self.logger.info("[ENGINE_SESSION] Cache miss: running fresh retrieval")
+                retrieved_verses = self.retrieve(retrieval_queries)
+                
+                # Cache retrieval results
+                if retrieved_verses:
+                    self.session_cache.cache_retrieval(
+                        session_id,
+                        retrieval_queries[0].query if retrieval_queries else "unknown",
+                        [v.model_dump() if hasattr(v, "model_dump") else v for v in retrieved_verses],
+                    )
+        except Exception as exc:
+            self.logger.exception("[ENGINE_SESSION] Retrieval failed: %s", exc)
+            warnings.append(f"retrieval_failed: {exc}")
+            retrieved_verses = []
+
+        # Rerank
+        try:
+            reranked_verses = self.rerank(user_query, retrieved_verses)
+        except Exception as exc:
+            self.logger.exception("[ENGINE_SESSION] Reranking failed: %s", exc)
+            warnings.append(f"reranking_failed: {exc}")
+            reranked_verses = sorted(
+                retrieved_verses,
+                key=lambda item: item.retrieval_score or 0.0,
+                reverse=True,
+            )[: self.config.final_top_k]
+
+        # Build context
+        try:
+            contexts = self.build_context(reranked_verses)
+        except Exception as exc:
+            self.logger.exception("[ENGINE_SESSION] Context building failed: %s", exc)
+            warnings.append(f"context_building_failed: {exc}")
+            contexts = []
+
+        response = EngineResponse(
+            original_query=user_query,
+            problems=problems,
+            emotions=emotions,
+            retrieval_queries=retrieval_queries,
+            contexts=contexts,
+            warnings=warnings,
+        )
+        
+        self.logger.info("[ENGINE_SESSION] Pipeline completed with %d final contexts (session_id=%s)", len(contexts), session_id)
         return response
