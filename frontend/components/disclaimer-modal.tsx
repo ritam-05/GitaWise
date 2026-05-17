@@ -49,7 +49,7 @@ export function DisclaimerModal({ isOpen, onClose }: DisclaimerModalProps) {
                 </h2>
 
                 {/* Content */}
-                <div className="space-y-4 text-[15px] leading-7 text-secondary">
+                <div className="space-y-4 text-[16.5px] leading-7 text-secondary">
                   <p>
                     GitaWise is an AI-powered educational and spiritual companion inspired by the Bhagavad Gita, and does not, anywhere, claim to be LORD KRISHNA himself. Responses are generated using AI and scripture retrieval systems and are intended for informational, reflective, and personal growth purposes only.
                   </p>

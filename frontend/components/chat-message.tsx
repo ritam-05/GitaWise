@@ -98,8 +98,8 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
           className={cn(
             isUser ? "whitespace-pre-wrap" : "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
             isUser
-              ? "text-[15px] leading-6 text-foreground"
-              : "text-[16px] leading-[1.65] text-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-muted [&_pre]:p-4",
+              ? "text-[16.5px] leading-6 text-foreground"
+              : "text-[17.6px] leading-[1.65] text-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-muted [&_pre]:p-4",
           )}
         >
           {isUser ? (

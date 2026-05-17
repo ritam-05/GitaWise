@@ -50,6 +50,7 @@
 html {
   min-height: 100%;
   background: var(--background);
+  font-size: 110%;
   scroll-behavior: smooth;
 }
 
@@ -58,7 +59,7 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--text-primary);
-  font-size: 17px;
+  font-size: 18.7px;
   font-feature-settings: "rlig" 1, "calt" 1;
   text-rendering: optimizeLegibility;
   transition:

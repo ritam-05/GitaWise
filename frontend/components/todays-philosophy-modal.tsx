@@ -85,7 +85,7 @@ export function TodaysPhilosophyModal({ isOpen, onClose }: Props) {
                   Today's Philosophy
                 </h2>
 
-                <div className="space-y-4 text-[15px] leading-7 text-secondary">
+                <div className="space-y-4 text-[16.5px] leading-7 text-secondary">
                   {loading && <p>Loading…</p>}
                   {error && <p className="text-destructive">{error}</p>}
 

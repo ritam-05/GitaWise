@@ -88,7 +88,7 @@ export function ChatInput({
         autoComplete="off"
         autoCapitalize="off"
         autoCorrect="off"
-        className="flex-1 border-0 bg-transparent px-0 py-2 text-[15px] shadow-none focus:ring-0 placeholder:text-muted placeholder:opacity-50 disabled:opacity-50"
+        className="flex-1 border-0 bg-transparent px-0 py-2 text-[16.5px] shadow-none focus:ring-0 placeholder:text-muted placeholder:opacity-50 disabled:opacity-50"
         style={{ minHeight: "36px", maxHeight: "120px" }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {

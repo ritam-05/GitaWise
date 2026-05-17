@@ -27,7 +27,7 @@ export function CitationCard({
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-full bg-surface/50 px-2.5 py-1 text-[14px] font-medium text-secondary transition hover:bg-surface hover:text-foreground"
+        className="inline-flex items-center gap-1.5 rounded-full bg-surface/50 px-2.5 py-1 text-[15.4px] font-medium text-secondary transition hover:bg-surface hover:text-foreground"
       >
         <span>Gita {chapter}.{verse}</span>
         {expanded && (
@@ -59,11 +59,11 @@ export function CitationCard({
             className="overflow-hidden"
           >
             <div className="mt-1.5 rounded-2xl bg-surface/60 p-3 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
-              <blockquote className="text-[14px] leading-6 italic text-secondary">
+              <blockquote className="text-[15.4px] leading-6 italic text-secondary">
                 {shloka}
               </blockquote>
               {summary && (
-                <p className="mt-2 text-[13px] leading-5 text-secondary">{summary}</p>
+                <p className="mt-2 text-[14.3px] leading-5 text-secondary">{summary}</p>
               )}
             </div>
           </motion.div>

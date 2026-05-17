@@ -12,7 +12,7 @@ export default function HomePage() {
             <h1 className="font-goudy text-3xl font-medium tracking-normal text-foreground sm:text-4xl">
               Gita-Wise
             </h1>
-            <p className="mx-auto max-w-lg text-[15px] leading-6 text-secondary sm:text-[18px]\">
+            <p className="mx-auto max-w-lg text-[16.5px] leading-6 text-secondary sm:text-[19.8px]\">
               Ask a question about action, duty, fear, attention, or peace. Find
               clarity through Bhagwad Gita.
             </p>

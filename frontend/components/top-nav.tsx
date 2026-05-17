@@ -84,8 +84,8 @@ export function TopNav() {
           {isProfileOpen && (
             <div className="absolute right-0 top-12 z-50 w-56 rounded-2xl border border-border bg-card p-1.5">
               <div className="border-b border-border px-3 py-3">
-                <p className="text-[15px] font-medium text-foreground">Guest</p>
-                <p className="mt-1 text-[13px] text-muted">
+                <p className="text-[16.5px] font-medium text-foreground">Guest</p>
+                <p className="mt-1 text-[14.3px] text-muted">
                   Sign in to personalize GitaWise
                 </p>
               </div>
@@ -93,14 +93,14 @@ export function TopNav() {
                 <button
                   type="button"
                   onClick={() => setIsProfileOpen(false)}
-                  className="w-full rounded-xl px-3 py-2.5 text-left text-[15px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
+                  className="w-full rounded-xl px-3 py-2.5 text-left text-[16.5px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
                 >
                   Sign In
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsProfileOpen(false)}
-                  className="w-full rounded-xl px-3 py-2.5 text-left text-[15px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
+                  className="w-full rounded-xl px-3 py-2.5 text-left text-[16.5px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
                 >
                   Account Settings
                 </button>
@@ -138,7 +138,7 @@ export function TopNav() {
                       }
                       setIsMenuOpen(false);
                     }}
-                    className="w-full rounded-xl px-3 py-2.5 text-left text-[15px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
+                    className="w-full rounded-xl px-3 py-2.5 text-left text-[16.5px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
                   >
                     {item}
                   </button>
