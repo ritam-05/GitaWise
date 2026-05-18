@@ -93,6 +93,15 @@ class AdaptiveGitaEngine:
         "why",
         "what is",
     }
+    CORRECTION_PHRASES = {
+        "i asked about",
+        "that's not what i asked",
+        "thats not what i asked",
+        "no i meant",
+        "no, i meant",
+        "you answered the wrong question",
+        "my question was about",
+    }
     DOMAIN_NOUNS = {
         "chapter",
         "verse",
@@ -226,12 +235,15 @@ class AdaptiveGitaEngine:
         try:
             session = self.session_cache.get_or_create_session(session_id)
             conversation_history = self._format_conversation_history(session)
+            intent_history = conversation_history + [
+                {"role": "system", "content": f"last_topic:{getattr(session, 'last_topic', '') or ''}"}
+            ]
             self.logger.info("[ADAPTIVE_SESSION] Using session %s with %d prior turns", session_id, len(session.recent_turns))
         except Exception as exc:
             self.logger.warning("[ADAPTIVE_SESSION] Failed to load session: %s, falling back to stateless", exc)
             return self.answer(user_query)
 
-        intent = self._detect_intent(user_query, conversation_history)
+        intent = self._detect_intent(user_query, intent_history)
         self.logger.info("[ADAPTIVE_SESSION] Intent detected: %s", intent)
 
         if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
@@ -267,7 +279,19 @@ class AdaptiveGitaEngine:
 
         try:
             classification = None
-            if intent == "CONTINUATION":
+            if intent == "CORRECTION":
+                corrected_topic = self._extract_correction_topic(user_query) or user_query
+                resolved_query = corrected_topic
+                dialogue_state.active_topic = corrected_topic
+                session.last_topic = corrected_topic
+                conversation_history = []
+                classification = {"transition_type": "topic_shift", "confidence": 0.99, "reason": "correction_preprocessor", "topic": corrected_topic}
+            elif intent == "TOPIC_SHIFT":
+                dialogue_state.active_topic = user_query
+                session.last_topic = user_query
+                conversation_history = []
+                classification = {"transition_type": "topic_shift", "confidence": 0.98, "reason": "intent_preprocessor", "topic": user_query}
+            elif intent == "CONTINUATION":
                 classification = {"transition_type": "continuation", "confidence": 0.99, "reason": "intent_preprocessor"}
             elif intent == "CLARIFICATION":
                 classification = {"transition_type": "continuation", "confidence": 0.95, "reason": "clarification_preprocessor"}
@@ -303,7 +327,7 @@ class AdaptiveGitaEngine:
                     # update dialogue state immediately to reflect new topic
                     dialogue_state.active_topic = topic
                 # rewrite conservatively: if rewriter exists, allow it to craft a retrieval-friendly query
-                if intent == "RESTATEMENT":
+                if intent in {"RESTATEMENT", "TOPIC_SHIFT", "CORRECTION"}:
                     resolved_query = resolved_query
                 elif self.contextual_rewriter:
                     resolved_query = self.contextual_rewriter.rewrite(user_query, dialogue_state, conversation_history, transition_type="topic_shift")
@@ -395,6 +419,9 @@ class AdaptiveGitaEngine:
                 conversation_history=conversation_history,
             )
 
+        if intent == "CORRECTION":
+            answer.answer = f"Apologies, let me address that.\n\n{answer.answer}"
+
         # Track this turn in session and update structured dialogue state
         try:
             self._track_conversation_turn(
@@ -460,6 +487,9 @@ class AdaptiveGitaEngine:
         if normalized in {self._normalize_intent_text(item) for item in self.REPEAT_REQUEST_PHRASES}:
             return "GENUINE_QUERY"
 
+        if self._matches_phrase(normalized, self.CORRECTION_PHRASES):
+            return "CORRECTION"
+
         if has_history and self._is_restatement(raw, history):
             return "RESTATEMENT"
 
@@ -471,6 +501,8 @@ class AdaptiveGitaEngine:
             return "CONTINUATION"
         if self._is_clarification_request(raw, has_history):
             return "CLARIFICATION"
+        if has_history and self._is_topic_shift(raw, history):
+            return "TOPIC_SHIFT"
 
         if word_count == 1:
             token = tokens[0]
@@ -537,6 +569,57 @@ class AdaptiveGitaEngine:
             if any(marker in lowered for marker in {"that", "this", "it", "you mean", "why", "how"}):
                 return True
         return False
+
+    def _is_topic_shift(self, text: str, history: list[dict[str, str]]) -> bool:
+        last_topic = self._extract_last_topic(history)
+        if not last_topic:
+            return False
+        current_nouns = self._subject_tokens(text)
+        last_topic_nouns = self._subject_tokens(last_topic)
+        if not current_nouns or not last_topic_nouns:
+            return False
+        overlap = current_nouns.intersection(last_topic_nouns)
+        if "?" in text and not overlap and self._introduces_new_subject_noun(text, history):
+            return True
+        return not overlap
+
+    def _extract_correction_topic(self, text: str) -> str | None:
+        patterns = [
+            r"i asked about\s+(.+)$",
+            r"my question was about\s+(.+)$",
+            r"no,?\s+i meant\s+(.+)$",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip(" .?!")
+        return None
+
+    @staticmethod
+    def _extract_last_topic(history: list[dict[str, str]]) -> str:
+        for item in reversed(history):
+            if item.get("role") == "system" and str(item.get("content", "")).startswith("last_topic:"):
+                return str(item.get("content", "")).split("last_topic:", 1)[1].strip()
+        return ""
+
+    def _subject_tokens(self, text: str) -> set[str]:
+        ignored = {
+            "what", "why", "how", "when", "where", "who", "about", "mean", "asked",
+            "question", "that", "this", "your", "with", "from", "into", "then",
+            "more", "continue", "please", "tell",
+        }
+        return {
+            token for token in self._intent_tokens(text)
+            if token not in ignored and len(token) > 2 and not token.isdigit()
+        }
+
+    def _introduces_new_subject_noun(self, text: str, history: list[dict[str, str]]) -> bool:
+        current_tokens = self._subject_tokens(text)
+        recent_text = " ".join(
+            item.get("content", "") for item in history[-4:] if item.get("role") in {"user", "assistant"}
+        )
+        prior_tokens = self._subject_tokens(recent_text)
+        return bool(current_tokens - prior_tokens)
 
     def _contains_noun_or_number_signal(self, text: str, tokens: list[str]) -> bool:
         if any(char.isdigit() for char in text):

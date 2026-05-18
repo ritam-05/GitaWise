@@ -115,6 +115,7 @@ export function ChatPageClient() {
                 role="assistant"
                 content="Thinking..."
                 citations={[]}
+                isThinking
               />
             )}
           </div>

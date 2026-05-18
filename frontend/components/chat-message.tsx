@@ -19,9 +19,10 @@ type ChatMessageProps = {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  isThinking?: boolean;
 };
 
-export function ChatMessage({ role, content, citations = [] }: ChatMessageProps) {
+export function ChatMessage({ role, content, citations = [], isThinking = false }: ChatMessageProps) {
   const isUser = role === "user";
 
   const markdownComponents = {
@@ -104,6 +105,10 @@ export function ChatMessage({ role, content, citations = [] }: ChatMessageProps)
         >
           {isUser ? (
             content
+          ) : isThinking ? (
+            <div className="flex items-center gap-2 text-foreground/80">
+              <span>{content}</span>
+            </div>
           ) : (
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {content}
