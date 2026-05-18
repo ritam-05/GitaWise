@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from .config import get_logger
-from .decomposer import SarvamTextClient
+from .decomposer import GroqJSONClient
 from .models import AdaptiveAnswer, EmotionResult, GeneratedAnswer, Problem, RetrievedVerse
 from .prompts import render_direct_response_prompt, render_ground_response_prompt
 
@@ -15,7 +15,7 @@ LOGGER = get_logger(__name__)
 class GroundedResponseGenerator:
     """Generate a final grounded answer using only retrieved contexts."""
 
-    def __init__(self, text_client: SarvamTextClient) -> None:
+    def __init__(self, text_client: GroqJSONClient) -> None:
         self.text_client = text_client
 
     def generate(
@@ -202,7 +202,7 @@ class GroundedResponseGenerator:
 class DirectResponseGenerator:
     """Generate a direct non-RAG answer when retrieval should be bypassed or skipped."""
 
-    def __init__(self, text_client: SarvamTextClient) -> None:
+    def __init__(self, text_client: GroqJSONClient) -> None:
         self.text_client = text_client
 
     def generate(
@@ -250,3 +250,12 @@ class DirectResponseGenerator:
             warnings=list(warnings or []),
             used_rag=False,
         )
+
+    @staticmethod
+    def generate_feedback_response(intent: str) -> str:
+        """Return a short canned response for feedback intents."""
+        if intent == "FEEDBACK_POSITIVE":
+            return "Glad that resonated. Would you like to go deeper into that, or explore something new?"
+        if intent == "FEEDBACK_NEGATIVE":
+            return "Sorry, that missed what you needed. Could you rephrase or point to the part you wanted clarified?"
+        raise ValueError(f"Unsupported feedback intent: {intent}")

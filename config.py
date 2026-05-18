@@ -81,6 +81,10 @@ QDRANT_ENDPOINT: Optional[str] = os.getenv("QDRANT_ENDPOINT")
 GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
 SARVAM_API_KEY: Optional[str] = os.getenv("SARVAM_API_KEY")
+SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_CACHE_TABLE = os.getenv("SUPABASE_CACHE_TABLE", "cache_entries")
 
 # =====================================================
 # DATA SCHEMA CONFIGURATION
@@ -210,6 +214,8 @@ def get_config_summary() -> dict:
         "EMBEDDING_MODEL": EMBEDDING_MODEL_NAME,
         "QDRANT_COLLECTION": QDRANT_COLLECTION_NAME,
         "QDRANT_ENDPOINT": QDRANT_ENDPOINT,
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_CACHE_TABLE": SUPABASE_CACHE_TABLE,
     }
 
 

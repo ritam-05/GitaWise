@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from difflib import SequenceMatcher
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -14,6 +16,7 @@ from .engine import GitaQueryEngine
 logger.info("[ADAPTIVE] Engine imported")
 from .generator import DirectResponseGenerator
 logger.info("[ADAPTIVE] Generator imported")
+from .lightweight_router import LightweightRouter
 from .models import AdaptiveAnswer, EmotionResult, Problem, RetrievalQuery, RetrievedVerse
 logger.info("[ADAPTIVE] Models imported")
 
@@ -40,11 +43,89 @@ except ImportError:
 class AdaptiveGitaEngine:
     """Hybrid orchestration layer that routes queries before any RAG work begins."""
 
+    POSITIVE_FEEDBACK_PHRASES = {
+        "good",
+        "great",
+        "nice",
+        "ok",
+        "okay",
+        "thanks",
+        "thank you",
+        "perfect",
+        "got it",
+        "understood",
+        "goof",
+        "goood",
+        "gd",
+        "thumbs up",
+        "thumbsup",
+        "thankyou",
+    }
+    NEGATIVE_FEEDBACK_PHRASES = {
+        "bad",
+        "wrong",
+        "no",
+        "not helpful",
+        "didn't understand",
+        "didnt understand",
+        "that's not what i meant",
+        "thats not what i meant",
+        "irrelevant",
+    }
+    CONTINUATION_PHRASES = {
+        "and",
+        "and?",
+        "then",
+        "then?",
+        "continue",
+        "go on",
+        "more",
+        "what else",
+        "elaborate",
+        "tell me more",
+        "next",
+        "keep going",
+    }
+    CLARIFICATION_PHRASES = {
+        "what do you mean",
+        "explain",
+        "how",
+        "why",
+        "what is",
+    }
+    DOMAIN_NOUNS = {
+        "chapter",
+        "verse",
+        "shloka",
+        "way",
+        "ways",
+        "gita",
+        "karma",
+        "dharma",
+        "bhakti",
+        "arjuna",
+        "krishna",
+        "teaching",
+        "teachings",
+    }
+    REPEAT_REQUEST_PHRASES = {
+        "repeat that",
+        "say that again",
+        "can you restate",
+    }
+    NON_ANSWER_PATTERNS = {
+        "would you like to go deeper",
+        "would you like to explore something new",
+        "could you rephrase",
+        "point to the part",
+        "would you like to go deeper into that",
+    }
+
     def __init__(self, config: QueryEngineConfig | None = None, cache_manager: Optional[object] = None) -> None:
         self.config = config or load_query_engine_config()
         self.logger = get_logger(self.__class__.__name__, self.config.log_level)
         self.query_engine = GitaQueryEngine(self.config, cache_manager=cache_manager)
-        self.direct_generator = DirectResponseGenerator(self.query_engine.sarvam_text_client)
+        self.direct_generator = DirectResponseGenerator(self.query_engine.groq_client)
         self.session_cache = self.query_engine.session_cache if hasattr(self.query_engine, 'session_cache') else None
         # Lightweight conversational resolver for follow-up resolution
         try:
@@ -69,6 +150,18 @@ class AdaptiveGitaEngine:
     def answer(self, user_query: str) -> AdaptiveAnswer:
         if not user_query.strip():
             raise ValueError("user_query must not be empty.")
+
+        intent = self._detect_intent(user_query, [])
+        if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
+            return AdaptiveAnswer(
+                original_query=user_query,
+                route="generic_chat",
+                answer=self.direct_generator.generate_feedback_response(intent),
+                cited_verses=[],
+                contexts=[],
+                warnings=[],
+                used_rag=False,
+            )
 
         route_result = self.query_engine.route_query(user_query)
         route = route_result.route
@@ -138,6 +231,35 @@ class AdaptiveGitaEngine:
             self.logger.warning("[ADAPTIVE_SESSION] Failed to load session: %s, falling back to stateless", exc)
             return self.answer(user_query)
 
+        intent = self._detect_intent(user_query, conversation_history)
+        self.logger.info("[ADAPTIVE_SESSION] Intent detected: %s", intent)
+
+        if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
+            answer = AdaptiveAnswer(
+                original_query=user_query,
+                route="generic_chat",
+                answer=self.direct_generator.generate_feedback_response(intent),
+                cited_verses=[],
+                contexts=[],
+                warnings=[],
+                used_rag=False,
+            )
+            try:
+                self._track_conversation_turn(
+                    session=session,
+                    user_query=user_query,
+                    route="generic_chat",
+                    problems=[],
+                    emotions=[],
+                    response=answer.answer,
+                    topic=getattr(session, "last_topic", None),
+                    intent=intent,
+                )
+                self.session_cache.save_session(session)
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Failed to track feedback turn: %s", exc)
+            return answer
+
         # Build structured dialogue state from the session and classify transition
         dialogue_state = DialogueState.from_session(session)
         resolved_query = user_query
@@ -145,7 +267,15 @@ class AdaptiveGitaEngine:
 
         try:
             classification = None
-            if self.transition_manager:
+            if intent == "CONTINUATION":
+                classification = {"transition_type": "continuation", "confidence": 0.99, "reason": "intent_preprocessor"}
+            elif intent == "CLARIFICATION":
+                classification = {"transition_type": "continuation", "confidence": 0.95, "reason": "clarification_preprocessor"}
+            elif intent == "RESTATEMENT":
+                restated_query = self._find_restatement_target(user_query, conversation_history) or user_query
+                resolved_query = restated_query
+                classification = {"transition_type": "topic_shift", "confidence": 0.97, "reason": "restatement_preprocessor", "topic": restated_query}
+            elif self.transition_manager:
                 classification = self.transition_manager.classify_transition(user_query, dialogue_state, conversation_history)
             else:
                 # fallback to previous continuation detector
@@ -173,7 +303,9 @@ class AdaptiveGitaEngine:
                     # update dialogue state immediately to reflect new topic
                     dialogue_state.active_topic = topic
                 # rewrite conservatively: if rewriter exists, allow it to craft a retrieval-friendly query
-                if self.contextual_rewriter:
+                if intent == "RESTATEMENT":
+                    resolved_query = resolved_query
+                elif self.contextual_rewriter:
                     resolved_query = self.contextual_rewriter.rewrite(user_query, dialogue_state, conversation_history, transition_type="topic_shift")
                 else:
                     resolved_query = user_query
@@ -267,11 +399,13 @@ class AdaptiveGitaEngine:
         try:
             self._track_conversation_turn(
                 session=session,
-                user_query=resolved_query,
+                user_query=user_query,
                 route=route,
                 problems=answer.contexts,
                 emotions=[],
                 response=answer.answer,
+                topic=getattr(dialogue_state, "active_topic", None),
+                intent=intent,
             )
             self.session_cache.save_session(session)
             self.logger.debug("[ADAPTIVE_SESSION] Tracked turn in session %s", session_id)
@@ -309,6 +443,187 @@ class AdaptiveGitaEngine:
             self.logger.warning("[ADAPTIVE_SESSION] Failed to update dialogue state: %s", exc)
 
         return answer
+
+    def _detect_intent(self, message: str, history: list[dict[str, str]] | None = None) -> str:
+        """Classify the incoming turn before route selection or retrieval begins."""
+        raw = (message or "").strip()
+        if not raw:
+            return "GENUINE_QUERY"
+
+        lowered = raw.lower()
+        normalized = self._normalize_intent_text(raw)
+        tokens = self._intent_tokens(raw)
+        word_count = len(tokens)
+        has_history = bool(history)
+        has_question_mark = "?" in raw
+
+        if normalized in {self._normalize_intent_text(item) for item in self.REPEAT_REQUEST_PHRASES}:
+            return "GENUINE_QUERY"
+
+        if has_history and self._is_restatement(raw, history):
+            return "RESTATEMENT"
+
+        if self._is_positive_feedback(raw) and not self._contains_noun_or_number_signal(raw, tokens):
+            return "FEEDBACK_POSITIVE"
+        if self._matches_phrase(normalized, self.NEGATIVE_FEEDBACK_PHRASES) and not self._contains_noun_or_number_signal(raw, tokens):
+            return "FEEDBACK_NEGATIVE"
+        if self._matches_phrase(normalized, self.CONTINUATION_PHRASES):
+            return "CONTINUATION"
+        if self._is_clarification_request(raw, has_history):
+            return "CLARIFICATION"
+
+        if word_count == 1:
+            token = tokens[0]
+            if self._contains_noun_or_number_signal(raw, tokens):
+                return "GENUINE_QUERY"
+            if LightweightRouter.is_gita_concept_word(token):
+                return "GENUINE_QUERY"
+            if LightweightRouter.fuzzy_match_short_token(token, LightweightRouter.SHORT_POSITIVE_WORDS):
+                return "FEEDBACK_POSITIVE"
+            if LightweightRouter.fuzzy_match_short_token(token, LightweightRouter.SHORT_NEGATIVE_WORDS):
+                return "FEEDBACK_NEGATIVE"
+            if LightweightRouter.fuzzy_match_short_token(token, LightweightRouter.SHORT_CONTINUATION_WORDS):
+                return "CONTINUATION"
+
+        if has_history and word_count <= 3 and not has_question_mark:
+            if self._contains_noun_or_number_signal(raw, tokens):
+                return "GENUINE_QUERY"
+            if any(token in {"more", "next", "continue", "elaborate", "then", "and"} for token in tokens):
+                return "CONTINUATION"
+            return "FEEDBACK_POSITIVE"
+
+        return "GENUINE_QUERY"
+
+    @staticmethod
+    def _normalize_intent_text(text: str) -> str:
+        normalized = text.lower()
+        normalized = re.sub(r"\s+", " ", normalized)
+        normalized = re.sub(r"[^\w\s?']", " ", normalized)
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    @staticmethod
+    def _intent_tokens(text: str) -> list[str]:
+        return re.findall(r"\b[\w']+\b", text.lower())
+
+    def _is_positive_feedback(self, text: str) -> bool:
+        if "👍" in text:
+            return True
+        normalized = self._normalize_intent_text(text)
+        if self._matches_phrase(normalized, self.POSITIVE_FEEDBACK_PHRASES):
+            return True
+        compact = LightweightRouter.normalize_short_text(text)
+        if compact and LightweightRouter.fuzzy_match_short_token(compact, LightweightRouter.SHORT_POSITIVE_WORDS):
+            return True
+        return False
+
+    @staticmethod
+    def _matches_phrase(normalized_text: str, phrases: set[str]) -> bool:
+        normalized_phrases = {re.sub(r"\s+", " ", phrase.lower()).strip() for phrase in phrases}
+        if normalized_text in normalized_phrases:
+            return True
+        return LightweightRouter.fuzzy_match_text(normalized_text, normalized_phrases) is not None
+
+    def _is_clarification_request(self, text: str, has_history: bool) -> bool:
+        if not has_history:
+            return False
+        normalized = self._normalize_intent_text(text)
+        if any(
+            normalized == phrase or normalized.startswith(f"{phrase} ")
+            for phrase in self.CLARIFICATION_PHRASES
+        ):
+            return True
+        if "?" in text or len(self._intent_tokens(text)) <= 6:
+            lowered = text.lower()
+            if any(marker in lowered for marker in {"that", "this", "it", "you mean", "why", "how"}):
+                return True
+        return False
+
+    def _contains_noun_or_number_signal(self, text: str, tokens: list[str]) -> bool:
+        if any(char.isdigit() for char in text):
+            return True
+        if any(token in self.DOMAIN_NOUNS for token in tokens):
+            return True
+        if len(tokens) <= 3:
+            filler = {
+                "good", "great", "nice", "ok", "okay", "thanks", "thank", "you",
+                "perfect", "got", "it", "understood", "bad", "wrong", "not",
+                "helpful", "and", "then", "more", "continue", "what", "else",
+            }
+            content_tokens = [token for token in tokens if token not in filler]
+            if any(len(token) > 4 for token in content_tokens):
+                return True
+        return False
+
+    def _is_restatement(self, text: str, history: list[dict[str, str]]) -> bool:
+        prior_question = self._find_restatement_target(text, history)
+        if not prior_question:
+            return False
+        last_answer = self._last_assistant_message(history)
+        if not last_answer:
+            return False
+        return not self._did_last_answer_address(prior_question, last_answer)
+
+    def _find_restatement_target(self, text: str, history: list[dict[str, str]]) -> str | None:
+        normalized_current = self._normalize_similarity_text(text)
+        if not normalized_current:
+            return None
+
+        best_match: str | None = None
+        best_score = 0.0
+        user_messages = [item.get("content", "") for item in history if item.get("role") == "user"]
+        for candidate in reversed(user_messages[-6:]):
+            normalized_candidate = self._normalize_similarity_text(candidate)
+            if not normalized_candidate:
+                continue
+            score = SequenceMatcher(None, normalized_current, normalized_candidate).ratio()
+            overlap = self._token_overlap_ratio(normalized_current, normalized_candidate)
+            if score >= 0.84 or overlap >= 0.72:
+                combined = score + overlap
+                if combined > best_score:
+                    best_score = combined
+                    best_match = candidate
+        return best_match
+
+    def _did_last_answer_address(self, question: str, answer: str) -> bool:
+        normalized_answer = self._normalize_intent_text(answer)
+        if any(pattern in normalized_answer for pattern in self.NON_ANSWER_PATTERNS):
+            return False
+        question_tokens = self._meaningful_tokens(question)
+        answer_tokens = self._meaningful_tokens(answer)
+        if not question_tokens or not answer_tokens:
+            return False
+        overlap = len(question_tokens.intersection(answer_tokens)) / max(1, len(question_tokens))
+        if overlap >= 0.35:
+            return True
+        if len(answer_tokens) >= 20 and overlap >= 0.22:
+            return True
+        return False
+
+    @staticmethod
+    def _last_assistant_message(history: list[dict[str, str]]) -> str | None:
+        for item in reversed(history):
+            if item.get("role") == "assistant" and item.get("content"):
+                return item["content"]
+        return None
+
+    @staticmethod
+    def _normalize_similarity_text(text: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]+", " ", text.lower())).strip()
+
+    def _meaningful_tokens(self, text: str) -> set[str]:
+        stopwords = {
+            "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "is",
+            "are", "what", "why", "how", "do", "does", "tell", "me", "about",
+            "please", "can", "you", "i", "it", "this", "that",
+        }
+        return {token for token in self._intent_tokens(text) if token not in stopwords and len(token) > 2}
+
+    def _token_overlap_ratio(self, text_a: str, text_b: str) -> float:
+        tokens_a = self._meaningful_tokens(text_a)
+        tokens_b = self._meaningful_tokens(text_b)
+        if not tokens_a or not tokens_b:
+            return 0.0
+        return len(tokens_a.intersection(tokens_b)) / max(1, len(tokens_a.union(tokens_b)))
 
     def _run_grounded_route(
         self,
@@ -449,6 +764,8 @@ class AdaptiveGitaEngine:
         problems: list,
         emotions: list,
         response: str,
+        topic: str | None = None,
+        intent: str | None = None,
     ) -> None:
         """
         Track a new conversation turn in the session.
@@ -471,6 +788,10 @@ class AdaptiveGitaEngine:
                 route=route,
                 problems=[{"problem": str(p)} for p in problems[:3]],
                 emotions=[str(e) for e in emotions[:3]],
+                topic=topic,
+                last_answer=response[:500],
+                user_intent=intent,
+                turn_count=session.total_turns + 1,
                 response=response[:500],  # Truncate long responses
             )
             # Pass config value for max turns limit
@@ -481,6 +802,14 @@ class AdaptiveGitaEngine:
                     session.last_resolved_query = user_query
                 if hasattr(session, 'last_route'):
                     session.last_route = route
+                if hasattr(session, 'last_answer'):
+                    session.last_answer = response[:500]
+                if hasattr(session, 'last_user_intent'):
+                    session.last_user_intent = intent
+                if hasattr(session, 'turn_count'):
+                    session.turn_count = session.total_turns
+                if hasattr(session, 'last_topic') and topic:
+                    session.last_topic = topic
             except Exception:
                 pass
             self.logger.debug("[ADAPTIVE_SESSION] Added turn %d to session", turn.turn_num)

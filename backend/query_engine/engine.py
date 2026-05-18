@@ -11,7 +11,7 @@ logger.info("[ENGINE_MODULE] Starting engine module imports...")
 from .combined_analyzer import CombinedAnalyzer
 from .config import QueryEngineConfig, get_logger, load_query_engine_config
 from .context_builder import ContextBuilder
-from .decomposer import GroqJSONClient, SarvamTextClient
+from .decomposer import GroqJSONClient
 from .emotion_normalizer import EmotionNormalizer
 from .generator import GroundedResponseGenerator
 from .lightweight_router import LightweightRouter
@@ -79,10 +79,6 @@ class GitaQueryEngine:
         self.groq_client = GroqJSONClient(self.config)
         self.logger.info("[ENGINE] Groq JSON client created")
 
-        self.logger.info("[ENGINE] Creating Sarvam text client...")
-        self.sarvam_text_client = SarvamTextClient(self.config)
-        self.logger.info("[ENGINE] Sarvam text client created")
-
         self.logger.info("[ENGINE] Creating lightweight router...")
         self.router = LightweightRouter()
         self.logger.info("[ENGINE] Lightweight router created")
@@ -96,7 +92,7 @@ class GitaQueryEngine:
         self.logger.info("[ENGINE] Emotion normalizer created")
 
         self.logger.info("[ENGINE] Creating response generator...")
-        self.generator = GroundedResponseGenerator(self.sarvam_text_client)
+        self.generator = GroundedResponseGenerator(self.groq_client)
         self.logger.info("[ENGINE] Response generator created")
 
         self.logger.info("[ENGINE] Creating query builder...")

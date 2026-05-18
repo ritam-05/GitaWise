@@ -6,6 +6,8 @@ import logging
 import os
 import uuid
 
+from config import SUPABASE_CACHE_TABLE, SUPABASE_SERVICE_KEY, SUPABASE_URL
+
 # Configure logging FIRST before any other code
 logging.basicConfig(
     level=logging.INFO,
@@ -95,7 +97,13 @@ async def startup_event() -> None:
     # Initialize global cache
     if CACHE_AVAILABLE:
         try:
-            cache_manager = CacheManager(max_memory_items=1000, default_ttl_seconds=3600)
+            cache_manager = CacheManager(
+                max_memory_items=1000,
+                default_ttl_seconds=3600,
+                supabase_url=SUPABASE_URL,
+                supabase_key=SUPABASE_SERVICE_KEY,
+                supabase_table=SUPABASE_CACHE_TABLE,
+            )
             app.state.cache_manager = cache_manager
             logger.info("[STARTUP] ✓ Global cache initialized (session TTL=1h)")
         except Exception as exc:

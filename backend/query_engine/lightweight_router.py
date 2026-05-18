@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from difflib import get_close_matches
 import re
 from .config import get_logger
 from .models import RouteLabel, RouteResult
@@ -66,6 +67,53 @@ class LightweightRouter:
         r"\b(help|question|how\s+to|what\s+is)\b",
     ]
 
+    SHORT_POSITIVE_WORDS = {
+        "good",
+        "great",
+        "nice",
+        "ok",
+        "okay",
+        "thanks",
+        "thankyou",
+        "perfect",
+        "gotit",
+        "understood",
+        "goof",
+        "goood",
+        "gd",
+        "thumbsup",
+    }
+    SHORT_NEGATIVE_WORDS = {
+        "bad",
+        "wrong",
+        "no",
+        "irrelevant",
+        "unclear",
+    }
+    SHORT_CONTINUATION_WORDS = {
+        "and",
+        "then",
+        "continue",
+        "more",
+        "next",
+        "elaborate",
+        "why",
+        "how",
+    }
+    GITA_CONCEPT_WORDS = {
+        "dharma",
+        "karma",
+        "moksha",
+        "brahman",
+        "atman",
+        "krishna",
+        "arjuna",
+        "gita",
+        "bhakti",
+        "jnana",
+        "yoga",
+    }
+
     def route(self, query: str) -> RouteResult:
         """
         Route a user query to the most appropriate handler.
@@ -112,6 +160,50 @@ class LightweightRouter:
         # Rule 4: Default to generic_chat
         LOGGER.info("Routed to 'generic_chat' (default classification)")
         return RouteResult(route="generic_chat")
+
+    @classmethod
+    def fuzzy_match_short_token(cls, token: str, candidates: set[str], cutoff: float = 0.6) -> str | None:
+        """Return the closest short-token match for typo-tolerant intent detection."""
+        normalized = cls.normalize_short_text(token)
+        if not normalized:
+            return None
+        if normalized in candidates:
+            return normalized
+        matches = get_close_matches(normalized, list(candidates), n=1, cutoff=cutoff)
+        if not matches:
+            return None
+        match = matches[0]
+        if abs(len(match) - len(normalized)) <= 2:
+            return match
+        return None
+
+    @classmethod
+    def fuzzy_match_text(cls, text: str, candidates: set[str], cutoff: float = 0.72) -> str | None:
+        """Return the closest normalized text match for short intent phrases."""
+        normalized = cls.normalize_phrase(text)
+        normalized_candidates = {cls.normalize_phrase(candidate): candidate for candidate in candidates}
+        if not normalized:
+            return None
+        if normalized in normalized_candidates:
+            return normalized_candidates[normalized]
+        matches = get_close_matches(normalized, list(normalized_candidates.keys()), n=1, cutoff=cutoff)
+        if not matches:
+            return None
+        return normalized_candidates[matches[0]]
+
+    @staticmethod
+    def normalize_short_text(text: str) -> str:
+        """Normalize a short phrase for fuzzy feedback matching."""
+        return re.sub(r"[^a-z0-9]+", "", text.lower()).strip()
+
+    @staticmethod
+    def normalize_phrase(text: str) -> str:
+        """Normalize a phrase while preserving word boundaries."""
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]+", " ", text.lower())).strip()
+
+    @classmethod
+    def is_gita_concept_word(cls, token: str) -> bool:
+        return cls.normalize_short_text(token) in cls.GITA_CONCEPT_WORDS
 
     @staticmethod
     def _matches_patterns(text: str, patterns: list[str]) -> bool:

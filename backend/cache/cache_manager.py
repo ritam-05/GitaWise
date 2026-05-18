@@ -1,4 +1,4 @@
-"""Core cache management with Redis backend and in-memory fallback."""
+"""Core cache management with Supabase persistence and in-memory fallback."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+import requests
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -44,14 +45,21 @@ class CacheManager:
     
     Features:
     - In-memory fallback (always available)
-    - Optional Redis backend (if configured)
+    - Optional Supabase persistence backend (if configured)
     - TTL support
     - Hit tracking
     - Size limits
     - Graceful degradation
     """
 
-    def __init__(self, max_memory_items: int = 1000, default_ttl_seconds: int = 3600) -> None:
+    def __init__(
+        self,
+        max_memory_items: int = 1000,
+        default_ttl_seconds: int = 3600,
+        supabase_url: str | None = None,
+        supabase_key: str | None = None,
+        supabase_table: str | None = None,
+    ) -> None:
         """
         Initialize cache manager.
         
@@ -65,33 +73,153 @@ class CacheManager:
         # In-memory cache (always available)
         self._memory_cache: dict[str, CacheEntry] = {}
         
-        # Redis client (optional, lazy-loaded)
-        self._redis_client: Optional[Any] = None
-        self._redis_enabled = os.getenv("REDIS_URL", "").strip() != ""
+        # Supabase persistence (optional, lazy-loaded)
+        self._supabase_url = (supabase_url or os.getenv("SUPABASE_URL", "")).strip().rstrip("/")
+        self._supabase_key = (
+            (supabase_key or "").strip()
+            or os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+            or os.getenv("SUPABASE_ANON_KEY", "").strip()
+        )
+        self._supabase_table = (
+            (supabase_table or os.getenv("SUPABASE_CACHE_TABLE", "cache_entries")).strip()
+            or "cache_entries"
+        )
+        self._supabase_enabled = bool(self._supabase_url and self._supabase_key)
+        self._supabase_ready = False
+        self._supabase_timeout_seconds = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", "10"))
         
         logger.info(
-            "[CACHE] Initialized CacheManager (max_memory=%d, default_ttl=%ds, redis=%s)",
+            "[CACHE] Initialized CacheManager (max_memory=%d, default_ttl=%ds, supabase=%s, table=%s)",
             max_memory_items,
             default_ttl_seconds,
-            "enabled" if self._redis_enabled else "disabled",
+            "enabled" if self._supabase_enabled else "disabled",
+            self._supabase_table,
         )
 
-    def _ensure_redis(self) -> Optional[Any]:
-        """Lazy-load Redis client if enabled."""
-        if not self._redis_enabled or self._redis_client is not None:
-            return self._redis_client
-        
+    def _supabase_headers(self, prefer: str | None = None) -> dict[str, str]:
+        headers = {
+            "apikey": self._supabase_key,
+            "Authorization": f"Bearer {self._supabase_key}",
+            "Content-Type": "application/json",
+        }
+        if prefer:
+            headers["Prefer"] = prefer
+        return headers
+
+    def _supabase_endpoint(self) -> str:
+        return f"{self._supabase_url}/rest/v1/{self._supabase_table}"
+
+    def _ensure_supabase(self) -> bool:
+        """Lazy-verify that Supabase is reachable for cache persistence."""
+        if not self._supabase_enabled:
+            return False
+        if self._supabase_ready:
+            return True
+
         try:
-            import redis
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            self._redis_client = redis.from_url(redis_url, decode_responses=True)
-            self._redis_client.ping()
-            logger.info("[CACHE] Redis connected successfully")
-            return self._redis_client
+            response = requests.get(
+                self._supabase_endpoint(),
+                headers=self._supabase_headers(),
+                params={"select": "key", "limit": 1},
+                timeout=self._supabase_timeout_seconds,
+            )
+            response.raise_for_status()
+            self._supabase_ready = True
+            logger.info("[CACHE] Supabase cache connected successfully")
+            return True
         except Exception as exc:
-            logger.warning("[CACHE] Redis connection failed, using memory-only cache: %s", exc)
-            self._redis_enabled = False
+            logger.warning("[CACHE] Supabase cache unavailable, using memory-only cache: %s", exc)
+            self._supabase_enabled = False
+            self._supabase_ready = False
+            return False
+
+    @staticmethod
+    def _serialize_value(value: Any) -> Any:
+        """Ensure values are JSON-safe for persistence."""
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {str(k): CacheManager._serialize_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [CacheManager._serialize_value(item) for item in value]
+        return value
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> Optional[datetime]:
+        if not value:
             return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            normalized = value.replace("Z", "+00:00")
+            return datetime.fromisoformat(normalized)
+        return None
+
+    def _supabase_get(self, key: str) -> Optional[Any]:
+        if not self._ensure_supabase():
+            return None
+
+        now_iso = datetime.utcnow().isoformat()
+        response = requests.get(
+            self._supabase_endpoint(),
+            headers=self._supabase_headers(),
+            params={
+                "select": "value,expires_at",
+                "key": f"eq.{key}",
+                "or": f"(expires_at.is.null,expires_at.gt.{now_iso})",
+                "limit": 1,
+            },
+            timeout=self._supabase_timeout_seconds,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not rows:
+            return None
+        return rows[0].get("value")
+
+    def _supabase_set(self, key: str, value: Any, ttl_seconds: int) -> bool:
+        if not self._ensure_supabase():
+            return False
+
+        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds) if ttl_seconds > 0 else None
+        payload = {
+            "key": key,
+            "value": self._serialize_value(value),
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        }
+        response = requests.post(
+            self._supabase_endpoint(),
+            headers=self._supabase_headers(prefer="resolution=merge-duplicates,return=minimal"),
+            params={"on_conflict": "key"},
+            data=json.dumps(payload),
+            timeout=self._supabase_timeout_seconds,
+        )
+        response.raise_for_status()
+        return True
+
+    def _supabase_delete(self, key: str) -> None:
+        if not self._ensure_supabase():
+            return
+        response = requests.delete(
+            self._supabase_endpoint(),
+            headers=self._supabase_headers(),
+            params={"key": f"eq.{key}"},
+            timeout=self._supabase_timeout_seconds,
+        )
+        response.raise_for_status()
+
+    def _supabase_clear(self) -> None:
+        if not self._ensure_supabase():
+            return
+        response = requests.delete(
+            self._supabase_endpoint(),
+            headers=self._supabase_headers(),
+            params={"key": "neq.__never__"},
+            timeout=self._supabase_timeout_seconds,
+        )
+        response.raise_for_status()
 
     def get(
         self,
@@ -108,18 +236,15 @@ class CacheManager:
         Returns:
             Cached value or None if not found/expired
         """
-        # Try Redis first
-        if self._redis_enabled:
+        # Try Supabase first
+        if self._supabase_enabled:
             try:
-                redis_client = self._ensure_redis()
-                if redis_client:
-                    raw = redis_client.get(key)
-                    if raw:
-                        value = json.loads(raw)
-                        logger.debug("[CACHE] Hit (Redis): %s", key)
-                        return value
+                value = self._supabase_get(key)
+                if value is not None:
+                    logger.debug("[CACHE] Hit (Supabase): %s", key)
+                    return value
             except Exception as exc:
-                logger.warning("[CACHE] Redis GET failed: %s", exc)
+                logger.warning("[CACHE] Supabase GET failed: %s", exc)
 
         # Fall back to memory
         entry = self._memory_cache.get(key)
@@ -158,21 +283,14 @@ class CacheManager:
             expires_at=expires_at,
         )
 
-        # Store in Redis if enabled
-        if self._redis_enabled:
+        # Store in Supabase if enabled
+        if self._supabase_enabled:
             try:
-                redis_client = self._ensure_redis()
-                if redis_client:
-                    json_val = json.dumps(value)
-                    redis_client.setex(
-                        key,
-                        ttl if ttl > 0 else 86400,  # 24h max
-                        json_val,
-                    )
-                    logger.debug("[CACHE] Set (Redis): %s (ttl=%ds)", key, ttl)
+                if self._supabase_set(key, value, ttl):
+                    logger.debug("[CACHE] Set (Supabase): %s (ttl=%ds)", key, ttl)
                     return
             except Exception as exc:
-                logger.warning("[CACHE] Redis SET failed, using memory: %s", exc)
+                logger.warning("[CACHE] Supabase SET failed, using memory: %s", exc)
 
         # Store in memory
         if len(self._memory_cache) >= self.max_memory_items:
@@ -183,15 +301,13 @@ class CacheManager:
 
     def delete(self, key: str) -> None:
         """Delete entry from cache."""
-        # Delete from Redis if enabled
-        if self._redis_enabled:
+        # Delete from Supabase if enabled
+        if self._supabase_enabled:
             try:
-                redis_client = self._ensure_redis()
-                if redis_client:
-                    redis_client.delete(key)
-                    logger.debug("[CACHE] Deleted (Redis): %s", key)
+                self._supabase_delete(key)
+                logger.debug("[CACHE] Deleted (Supabase): %s", key)
             except Exception as exc:
-                logger.warning("[CACHE] Redis DELETE failed: %s", exc)
+                logger.warning("[CACHE] Supabase DELETE failed: %s", exc)
 
         # Delete from memory
         if key in self._memory_cache:
@@ -203,14 +319,12 @@ class CacheManager:
         self._memory_cache.clear()
         logger.info("[CACHE] Memory cache cleared")
 
-        if self._redis_enabled:
+        if self._supabase_enabled:
             try:
-                redis_client = self._ensure_redis()
-                if redis_client:
-                    redis_client.flushdb()
-                    logger.info("[CACHE] Redis cache cleared")
+                self._supabase_clear()
+                logger.info("[CACHE] Supabase cache cleared")
             except Exception as exc:
-                logger.warning("[CACHE] Redis FLUSHDB failed: %s", exc)
+                logger.warning("[CACHE] Supabase cache clear failed: %s", exc)
 
     def _evict_lru(self) -> None:
         """Evict least-recently-used item from memory cache."""
@@ -236,5 +350,6 @@ class CacheManager:
             "total_hits": total_hits,
             "total_accesses": total_accesses,
             "hit_rate": hit_rate,
-            "redis_enabled": self._redis_enabled,
+            "supabase_enabled": self._supabase_enabled,
+            "supabase_table": self._supabase_table,
         }

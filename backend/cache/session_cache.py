@@ -23,6 +23,10 @@ class ConversationTurn(BaseModel):
     problems: list[dict[str, str]] = Field(default_factory=list)
     emotions: list[str] = Field(default_factory=list)
     retrieved_verses: list[dict[str, Any]] = Field(default_factory=list)
+    topic: Optional[str] = None
+    last_answer: Optional[str] = None
+    user_intent: Optional[str] = None
+    turn_count: Optional[int] = None
     response: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
@@ -44,6 +48,8 @@ class SessionMemory(BaseModel):
     # Last known route/topic/resolved query/retrieval for continuation semantics
     last_route: Optional[str] = None
     last_topic: Optional[str] = None
+    last_answer: Optional[str] = None
+    last_user_intent: Optional[str] = None
     last_resolved_query: Optional[str] = None
     last_retrieved_verses: list[dict[str, Any]] = Field(default_factory=list)
     # Store resolved follow-up rewrites for debugging and continuity
@@ -54,6 +60,7 @@ class SessionMemory(BaseModel):
     
     # Statistics
     total_turns: int = 0
+    turn_count: int = 0
     total_verses_retrieved: int = 0
 
     def add_turn(self, turn: ConversationTurn, max_stored_turns: int = 10) -> None:
@@ -70,17 +77,24 @@ class SessionMemory(BaseModel):
             excess = len(self.recent_turns) - max_stored_turns
             self.recent_turns = self.recent_turns[excess:]
         self.total_turns += 1
+        self.turn_count = self.total_turns
         self.last_accessed = datetime.utcnow()
         # Update last_topic/last_route/last_resolved_query when a turn is tracked
         try:
             # turn.route may be present
             if hasattr(turn, 'route') and turn.route:
                 self.last_route = turn.route
+            if getattr(turn, "last_answer", None):
+                self.last_answer = turn.last_answer
+            if getattr(turn, "user_intent", None):
+                self.last_user_intent = turn.user_intent
             # inferred topic from problems if present
             if turn.problems:
                 first_problem = turn.problems[0]
                 if isinstance(first_problem, dict):
                     self.last_topic = first_problem.get('problem') or self.last_topic
+            if getattr(turn, "topic", None):
+                self.last_topic = turn.topic
             # last_resolved_query is not available here by default; engine should set it explicitly
         except Exception:
             pass
@@ -195,8 +209,8 @@ class SessionCache:
         cleaned_count = 0
         
         try:
-            # Note: This is a best-effort cleanup for in-memory and Redis caches.
-            # For in-memory cache, we scan all keys; for Redis, TTL is handled automatically.
+            # Note: This is a best-effort cleanup for in-memory and Supabase-backed caches.
+            # For in-memory cache, we scan all keys; for Supabase, expiry is checked on read.
             # For production, consider implementing explicit session tracking.
             logger.info(
                 "[SESSION_CLEANUP] Starting cleanup (ttl=%ds, threshold_time=%s)",
