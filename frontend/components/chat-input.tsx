@@ -72,7 +72,7 @@ export function ChatInput({
     <form
       onSubmit={handleSubmit}
       className={cn(
-        "flex items-end gap-2 rounded-2xl bg-surface p-2.5 shadow-none transition-colors",
+        "flex items-end gap-2 rounded-3xl border border-white/10 bg-[#111111] p-3 transition-colors",
         disabled && "opacity-60",
         className,
       )}

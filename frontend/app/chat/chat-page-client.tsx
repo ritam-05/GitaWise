@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessage, type Citation } from "@/components/chat-message";
+import { FloatingInput } from "@/components/floating-input";
 import { Sidebar } from "@/components/sidebar";
 import { fetchQueryAnswer } from "@/lib/api";
 
@@ -92,7 +93,7 @@ export function ChatPageClient() {
     <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex min-h-screen flex-1 flex-col">
-        <div className="subtle-scrollbar flex-1 overflow-y-auto px-0 py-10">
+        <div className="subtle-scrollbar flex-1 overflow-y-auto px-0 py-10 pb-40">
           <div className="mx-auto w-full max-w-[60vw] translate-x-[2vw] space-y-6">
             {messages.length === 0 ? (
               <div className="flex h-full items-center justify-center">
@@ -120,19 +121,14 @@ export function ChatPageClient() {
             )}
           </div>
         </div>
-
-        <div className="sticky bottom-0 bg-background/86 px-0 py-5 backdrop-blur-xl">
-          <div className="mx-auto w-full max-w-[60vw] translate-x-[2vw]">
-            <ChatInput
-              compact
-              onSubmit={handleSubmit}
-              onStop={handleStopGeneration}
-              isGenerating={isLoading}
-              disabled={isLoading}
-            />
-          </div>
-        </div>
       </main>
+
+      <FloatingInput
+        onSubmit={handleSubmit}
+        onStop={handleStopGeneration}
+        isGenerating={isLoading}
+        disabled={isLoading}
+      />
     </div>
   );
 }
