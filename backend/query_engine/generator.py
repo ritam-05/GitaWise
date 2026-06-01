@@ -1,10 +1,13 @@
-"""Grounded response generation from retrieved Bhagavad Gita contexts."""
+"""Grounded response generation from retrieved Bhagavad Gita contexts using LangChain."""
 
 from __future__ import annotations
 
 import re
 
-from .config import get_logger
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from .config import QueryEngineConfig, get_logger
 from .decomposer import GroqJSONClient
 from .models import AdaptiveAnswer, EmotionResult, GeneratedAnswer, Problem, RetrievedVerse
 from .prompts import render_direct_response_prompt, render_ground_response_prompt
@@ -13,10 +16,16 @@ LOGGER = get_logger(__name__)
 
 
 class GroundedResponseGenerator:
-    """Generate a final grounded answer using only retrieved contexts."""
+    """Generate a final grounded answer using only retrieved contexts with LangChain."""
 
-    def __init__(self, text_client: GroqJSONClient) -> None:
+    def __init__(self, text_client: GroqJSONClient | None = None, config: QueryEngineConfig | None = None) -> None:
         self.text_client = text_client
+        self.config = config or QueryEngineConfig()
+        self.llm = ChatGroq(
+            api_key=self.config.groq_api_key,
+            model_name=self.config.groq_model_name,
+            temperature=self.config.groq_temperature,
+        )
 
     def generate(
         self,
@@ -28,7 +37,7 @@ class GroundedResponseGenerator:
         conversation_history: list[dict[str, str]] | None = None,
     ) -> GeneratedAnswer:
         """
-        Generate grounded answer with optional conversation history for context chaining.
+        Generate grounded answer with optional conversation history for context chaining using LangChain.
         
         Args:
             user_query: Current user query
@@ -48,7 +57,14 @@ class GroundedResponseGenerator:
             contexts=[self._context_payload(item) for item in contexts],
             conversation_history=conversation_history,
         )
-        answer = self.text_client.invoke_text(prompt).strip()
+        
+        # Use LangChain to invoke LLM
+        messages = [
+            SystemMessage(content="Respond carefully and only from the provided Bhagavad Gita context."),
+            HumanMessage(content=prompt),
+        ]
+        response = self.llm.invoke(messages)
+        answer = (response.content or "").strip()
         
         # Sanitize answer before citation extraction
         try:
@@ -200,10 +216,16 @@ class GroundedResponseGenerator:
 
 
 class DirectResponseGenerator:
-    """Generate a direct non-RAG answer when retrieval should be bypassed or skipped."""
+    """Generate a direct non-RAG answer when retrieval should be bypassed or skipped using LangChain."""
 
-    def __init__(self, text_client: GroqJSONClient) -> None:
+    def __init__(self, text_client: GroqJSONClient | None = None, config: QueryEngineConfig | None = None) -> None:
         self.text_client = text_client
+        self.config = config or QueryEngineConfig()
+        self.llm = ChatGroq(
+            api_key=self.config.groq_api_key,
+            model_name=self.config.groq_model_name,
+            temperature=self.config.groq_temperature,
+        )
 
     def generate(
         self,
@@ -214,7 +236,7 @@ class DirectResponseGenerator:
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AdaptiveAnswer:
         """
-        Generate direct non-RAG response with optional conversation history.
+        Generate direct non-RAG response with optional conversation history using LangChain.
         
         Args:
             user_query: Current user query
@@ -223,18 +245,24 @@ class DirectResponseGenerator:
             fallback_note: Route-specific fallback instruction
             conversation_history: Previous turns for context chaining
         """
-        answer = self.text_client.invoke_text(
-            render_direct_response_prompt(
-                user_query=user_query,
-                route=route,
-                fallback_note=fallback_note,
-                conversation_history=conversation_history,
-            )
-        ).strip()
+        prompt = render_direct_response_prompt(
+            user_query=user_query,
+            route=route,
+            fallback_note=fallback_note,
+            conversation_history=conversation_history,
+        )
+        
+        # Use LangChain ChatGroq to invoke LLM
+        messages = [
+            SystemMessage(content="Respond carefully and only from the provided Bhagavad Gita context."),
+            HumanMessage(content=prompt),
+        ]
+        response = self.llm.invoke(messages)
+        answer = (response.content or "").strip()
         
         # Sanitize direct response answer as well
         try:
-            sanitizer = GroundedResponseGenerator(self.text_client)
+            sanitizer = GroundedResponseGenerator(self.text_client, self.config)
             answer = sanitizer._sanitize_answer(answer)
             LOGGER.debug("Direct response answer sanitized successfully")
         except Exception as exc:

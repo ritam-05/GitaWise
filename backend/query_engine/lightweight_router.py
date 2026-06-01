@@ -17,8 +17,7 @@ class LightweightRouter:
     ZERO LLM calls. Instant route classification.
     
     Routes:
-    - generic_chat: greetings, small talk, non-philosophical
-    - philosophical_guidance: life struggles, relationships, discipline, purpose
+    - philosophical_guidance: life struggles, relationships, discipline, purpose, personal problems
     - emotion_guidance: intense emotional distress (grief, hopelessness, anxiety)
     - gita_rag: explicit Gita/scripture references
     """
@@ -59,13 +58,26 @@ class LightweightRouter:
         r"\b(meditat|pray|reflect|contemplate)\b",
     ]
 
-    # Generic chat patterns (lowest priority - greetings, casual)
-    GENERIC_PATTERNS = [
-        r"^(hi|hello|hey|greetings|thanks|thank\s+you|okay|ok|yes|no)\b",
-        r"\b(weather|time|date|how\s+are\s+you)\b",
-        r"\b(joke|funny|laugh)\b",
-        r"\b(help|question|how\s+to|what\s+is)\b",
+    # Personal problems requiring RAG guidance
+    PERSONAL_PROBLEM_PATTERNS = [
+        r"\b(job|employment|career|work).{0,30}(frustrated|problem|issue|stuck|fail|reject)\b",
+        r"\b(frustrated|frustration|stress|anxious|worried).{0,20}(job|career|work|interview)\b",
+        r"\b(not getting|unable to get|can't get).{0,20}(job|work|employment|interview)\b",
+        r"\b(relationship|love|heart|marriage|divorce|break\s*up)\b",
+        r"\b(family|parent|mother|father|brother|sister).{0,20}(conflict|issue|problem|upset)\b",
+        r"\b(health|sick|disease|illness|depression)\b",
+        r"\b(money|financial|debt|poor|poverty)\b",
+        r"\b(sad|depressed|unhappy).{0,30}(reason|why|cause)\b",
     ]
+
+    # Philosophical concepts (what is X, define X)
+    PHILOSOPHICAL_CONCEPT_PATTERNS = [
+        r"^(what\s+is|define|explain).{0,30}(fear|confidence|courage|wisdom|truth|love|peace|success|failure|duty|karma|dharma|action|desire|attachment|detachment|soul|consciousness|purpose|meaning)\b",
+        r"\b(what\s+is).{0,30}(fear|confidence|courage|wisdom|truth|love|peace|success|failure|duty|karma|dharma|action|desire|attachment|detachment|soul|consciousness|purpose|meaning)\b",
+        r"\b(meaning\s+of).{0,30}(fear|confidence|courage|wisdom|truth|love|peace|success|failure|duty|karma|dharma|action|desire|attachment|detachment|soul|consciousness|purpose|meaning)\b",
+    ]
+
+
 
     SHORT_POSITIVE_WORDS = {
         "good",
@@ -120,9 +132,11 @@ class LightweightRouter:
         
         Priority:
         1. Explicit Gita references → gita_rag
-        2. Intense emotional distress → emotion_guidance
-        3. Philosophical struggle → philosophical_guidance
-        4. Default → generic_chat
+        2. Intense emotional distress → emotion_guidance (RAG)
+        3. Personal problems (job, relationships, health) → philosophical_guidance (RAG)
+        4. Philosophical concept questions (what is X) → philosophical_guidance (RAG)
+        5. Philosophical struggle → philosophical_guidance (RAG)
+        6. Default → philosophical_guidance (all queries now use RAG-enabled routes)
         
         Args:
             query: User's input query
@@ -131,8 +145,8 @@ class LightweightRouter:
             RouteResult with selected route
         """
         if not query.strip():
-            LOGGER.warning("Empty query received, defaulting to generic_chat")
-            return RouteResult(route="generic_chat")
+            LOGGER.info("Empty query received, defaulting to philosophical_guidance")
+            return RouteResult(route="philosophical_guidance")
 
         query_lower = query.lower().strip()
         
@@ -146,20 +160,30 @@ class LightweightRouter:
             LOGGER.info("Routed to 'emotion_guidance' (intense emotional distress detected)")
             return RouteResult(route="emotion_guidance")
         
-        # Rule 3: Philosophical struggle (third priority)
+        # Rule 3: Personal problems requiring RAG guidance
+        if self._matches_patterns(query_lower, self.PERSONAL_PROBLEM_PATTERNS):
+            LOGGER.info("Routed to 'philosophical_guidance' (personal problem detected - requires RAG)")
+            return RouteResult(route="philosophical_guidance")
+        
+        # Rule 4: Philosophical concept questions (what is X, define X)
+        if self._matches_patterns(query_lower, self.PHILOSOPHICAL_CONCEPT_PATTERNS):
+            LOGGER.info("Routed to 'philosophical_guidance' (philosophical concept question - requires RAG)")
+            return RouteResult(route="philosophical_guidance")
+        
+        # Rule 5: Philosophical struggle (third priority)
         philosophical_match_count = self._count_pattern_matches(query_lower, self.PHILOSOPHICAL_PATTERNS)
         if philosophical_match_count >= 2:  # At least 2 philosophical terms
             LOGGER.info("Routed to 'philosophical_guidance' (%d philosophical terms detected)", philosophical_match_count)
             return RouteResult(route="philosophical_guidance")
         
-        if philosophical_match_count == 1 and not self._matches_patterns(query_lower, self.GENERIC_PATTERNS):
-            # Single philosophical term with no generic chat markers
-            LOGGER.info("Routed to 'philosophical_guidance' (1 philosophical term, no generic markers)")
+        if philosophical_match_count == 1:
+            # Single philosophical term
+            LOGGER.info("Routed to 'philosophical_guidance' (1 philosophical term detected)")
             return RouteResult(route="philosophical_guidance")
         
-        # Rule 4: Default to generic_chat
-        LOGGER.info("Routed to 'generic_chat' (default classification)")
-        return RouteResult(route="generic_chat")
+        # Rule 6: Default to philosophical_guidance (all queries now use RAG)
+        LOGGER.info("Routed to 'philosophical_guidance' (default - all queries use RAG)")
+        return RouteResult(route="philosophical_guidance")
 
     @classmethod
     def fuzzy_match_short_token(cls, token: str, candidates: set[str], cutoff: float = 0.6) -> str | None:

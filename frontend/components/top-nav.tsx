@@ -7,6 +7,7 @@ import { House, Menu, UserRound } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DisclaimerModal } from "@/components/disclaimer-modal";
 import { TodaysPhilosophyModal } from "@/components/todays-philosophy-modal";
+import { clearChatSession, resetStoredSessionId } from "@/lib/api";
 
 const menuItems = ["Settings", "Today's Philosophy", "Disclaimer"];
 
@@ -19,6 +20,15 @@ export function TopNav() {
   const [isPhilosophyOpen, setIsPhilosophyOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  function handleHomeClick() {
+    const sessionId = resetStoredSessionId();
+    if (sessionId) {
+      void clearChatSession(sessionId).catch((error) => {
+        console.warn("Failed to clear chat session cache", error);
+      });
+    }
+  }
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -57,6 +67,7 @@ export function TopNav() {
           {showHomeButton && (
             <Link
               href="/"
+              onClick={handleHomeClick}
               className="inline-flex h-10 items-center gap-2 rounded-full border border-transparent px-4 text-sm font-medium text-muted transition-colors hover:border-border hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               aria-label="Go to home page"
             >

@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 
@@ -15,8 +17,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -33,6 +33,7 @@ venv/
 ENV/
 env/
 .venv
+.venv/
 
 # IDE
 .vscode/
@@ -46,10 +47,13 @@ env/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Generated data files
+# Generated data/cache files
 datasets/
-*.json
-*.pyc
+backend/memory/
+backend/cache/
+*.sqlite
+*.sqlite3
+*.db
 
 # Logs
 *.log
@@ -66,5 +70,13 @@ Thumbs.db
 
 # Node modules (if applicable)
 node_modules/
+frontend/node_modules/
+.next/
 frontend/.next/
+out/
+frontend/out/
+*.tsbuildinfo
 npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

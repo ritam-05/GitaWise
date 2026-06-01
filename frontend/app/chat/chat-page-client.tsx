@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessage, type Citation } from "@/components/chat-message";
-import { FloatingInput } from "@/components/floating-input";
+// Floating input removed: render inline ChatInput instead
 import { Sidebar } from "@/components/sidebar";
 import { fetchQueryAnswer } from "@/lib/api";
 
@@ -123,12 +123,18 @@ export function ChatPageClient() {
         </div>
       </main>
 
-      <FloatingInput
-        onSubmit={handleSubmit}
-        onStop={handleStopGeneration}
-        isGenerating={isLoading}
-        disabled={isLoading}
-      />
+      {/* Inline chat input (replaces floating input) */}
+      <div className="fixed bottom-6 left-0 right-0 z-40 flex justify-center px-4">
+        <div className="w-full max-w-[60vw]">
+          <ChatInput
+            compact
+            onSubmit={handleSubmit}
+            onStop={handleStopGeneration}
+            isGenerating={isLoading}
+            disabled={isLoading}
+          />
+        </div>
+      </div>
     </div>
   );
 }

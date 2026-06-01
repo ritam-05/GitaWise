@@ -91,7 +91,6 @@ class AdaptiveGitaEngine:
         "explain",
         "how",
         "why",
-        "what is",
     }
     CORRECTION_PHRASES = {
         "i asked about",
@@ -152,7 +151,7 @@ class AdaptiveGitaEngine:
         except Exception:
             self.contextual_rewriter = None
         try:
-            self.transition_manager = StateTransitionManager()
+            self.transition_manager = StateTransitionManager(self.query_engine.groq_client)
         except Exception:
             self.transition_manager = None
 
@@ -164,7 +163,7 @@ class AdaptiveGitaEngine:
         if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
             return AdaptiveAnswer(
                 original_query=user_query,
-                route="generic_chat",
+                route="philosophical_guidance",
                 answer=self.direct_generator.generate_feedback_response(intent),
                 cited_verses=[],
                 contexts=[],
@@ -175,13 +174,6 @@ class AdaptiveGitaEngine:
         route_result = self.query_engine.route_query(user_query)
         route = route_result.route
         self.logger.info("Adaptive route selected: %s", route)
-
-        if route == "generic_chat":
-            return self.direct_generator.generate(
-                user_query=user_query,
-                route=route,
-                fallback_note="This query should be handled as direct conversation without Bhagavad Gita retrieval.",
-            )
 
         if route == "gita_rag":
             problems = [Problem(problem=user_query.strip())]
@@ -249,7 +241,7 @@ class AdaptiveGitaEngine:
         if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
             answer = AdaptiveAnswer(
                 original_query=user_query,
-                route="generic_chat",
+                route="philosophical_guidance",
                 answer=self.direct_generator.generate_feedback_response(intent),
                 cited_verses=[],
                 contexts=[],
@@ -260,7 +252,7 @@ class AdaptiveGitaEngine:
                 self._track_conversation_turn(
                     session=session,
                     user_query=user_query,
-                    route="generic_chat",
+                    route="philosophical_guidance",
                     problems=[],
                     emotions=[],
                     response=answer.answer,
@@ -286,6 +278,8 @@ class AdaptiveGitaEngine:
                 session.last_topic = corrected_topic
                 conversation_history = []
                 classification = {"transition_type": "topic_shift", "confidence": 0.99, "reason": "correction_preprocessor", "topic": corrected_topic}
+            elif self._has_topic_router_context(dialogue_state) and self.transition_manager:
+                classification = self.transition_manager.classify_transition(user_query, dialogue_state, conversation_history)
             elif intent == "TOPIC_SHIFT":
                 dialogue_state.active_topic = user_query
                 session.last_topic = user_query
@@ -326,8 +320,14 @@ class AdaptiveGitaEngine:
                 if topic:
                     # update dialogue state immediately to reflect new topic
                     dialogue_state.active_topic = topic
+                    resolved_query = self._query_from_detected_topic(user_query, topic)
+                dialogue_state.last_retrieved_verses = []
+                if hasattr(session, "last_retrieved_verses"):
+                    session.last_retrieved_verses = []
+                conversation_history = []
                 # rewrite conservatively: if rewriter exists, allow it to craft a retrieval-friendly query
-                if intent in {"RESTATEMENT", "TOPIC_SHIFT", "CORRECTION"}:
+                reason = str(classification.get("reason", ""))
+                if intent in {"RESTATEMENT", "TOPIC_SHIFT", "CORRECTION"} or reason.startswith("llm_topic_shift_detector:"):
                     resolved_query = resolved_query
                 elif self.contextual_rewriter:
                     resolved_query = self.contextual_rewriter.rewrite(user_query, dialogue_state, conversation_history, transition_type="topic_shift")
@@ -381,14 +381,41 @@ class AdaptiveGitaEngine:
             route = route_result.route
             self.logger.info("[ADAPTIVE_SESSION] Route: %s (resolved_query='%s')", route, resolved_query)
 
-        # Generate answer with conversation context
-        if route == "generic_chat":
-            answer = self.direct_generator.generate(
-                user_query=resolved_query,
-                route=route,
-                fallback_note="This query should be handled as direct conversation without Bhagavad Gita retrieval.",
-                conversation_history=conversation_history,
-            )
+        # Generate answer with conversation context.
+        # Same-topic continuations reuse the topic's original retrieved verses.
+        # Topic shifts are the only path that should retrieve fresh verses.
+        ttype = classification.get("transition_type") if 'classification' in locals() else "topic_shift"
+        should_reuse_cache = is_continuation and ttype == "continuation"
+        
+        if should_reuse_cache and dialogue_state.last_retrieved_verses:
+            # CONTINUATION: Reuse cached retrieval from prior turn on same topic
+            self.logger.info("[ADAPTIVE_SESSION] CONTINUATION: Reusing cached retrieval for topic=%s", dialogue_state.active_topic)
+            problems = [Problem(problem=dialogue_state.active_topic or resolved_query.strip())]
+            emotions = [EmotionResult(problem=dialogue_state.active_topic or resolved_query.strip(), emotion="none")]
+            cached_contexts = self._deserialize_cached_contexts(dialogue_state.last_retrieved_verses)
+
+            if cached_contexts:
+                answer = self._run_grounded_route_with_cached_context(
+                    user_query=resolved_query,
+                    route=route,
+                    problems=problems,
+                    emotions=emotions,
+                    cached_contexts=cached_contexts,
+                    conversation_history=conversation_history,
+                )
+            else:
+                self.logger.warning("[ADAPTIVE_SESSION] Cached topic contexts were empty/unusable; running fresh retrieval")
+                problems, emotions = self.query_engine.analyze_query(resolved_query)
+                retrieval_queries = self.query_engine.build_queries(emotions)
+                answer = self._run_grounded_route(
+                    user_query=resolved_query,
+                    route=route,
+                    problems=problems,
+                    emotions=emotions,
+                    retrieval_queries=retrieval_queries,
+                    conversation_history=conversation_history,
+                    session_id=session_id,
+                )
         elif route == "gita_rag":
             problems = [Problem(problem=resolved_query.strip())]
             emotions = [EmotionResult(problem=resolved_query.strip(), emotion="none")]
@@ -406,8 +433,12 @@ class AdaptiveGitaEngine:
                 emotions=emotions,
                 retrieval_queries=retrieval_queries,
                 conversation_history=conversation_history,
+                session_id=session_id,
             )
         else:
+            # TOPIC_SHIFT or fresh query: Do full analysis + retrieval
+            if ttype == "topic_shift":
+                self.logger.info("[ADAPTIVE_SESSION] TOPIC_SHIFT: Running fresh analysis and retrieval for new topic")
             problems, emotions = self.query_engine.analyze_query(resolved_query)
             retrieval_queries = self.query_engine.build_queries(emotions)
             answer = self._run_grounded_route(
@@ -417,6 +448,7 @@ class AdaptiveGitaEngine:
                 emotions=emotions,
                 retrieval_queries=retrieval_queries,
                 conversation_history=conversation_history,
+                session_id=session_id,
             )
 
         if intent == "CORRECTION":
@@ -428,7 +460,7 @@ class AdaptiveGitaEngine:
                 session=session,
                 user_query=user_query,
                 route=route,
-                problems=answer.contexts,
+                problems=problems,
                 emotions=[],
                 response=answer.answer,
                 topic=getattr(dialogue_state, "active_topic", None),
@@ -460,8 +492,22 @@ class AdaptiveGitaEngine:
             except Exception:
                 topic = None
 
+            if not topic:
+                topic = self._topic_from_query(resolved_query)
             if topic:
                 state.active_topic = topic
+            
+            # Store retrieved contexts in dialogue state for reuse on continuations (same topic)
+            try:
+                if answer.used_rag and getattr(answer, 'contexts', None):
+                    state.last_retrieved_verses = [
+                        c.model_dump() if hasattr(c, 'model_dump') else c
+                        for c in answer.contexts
+                    ]
+                    self.logger.info("[ADAPTIVE_SESSION] Stored %d contexts in dialogue state for continuation", len(state.last_retrieved_verses))
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Failed to store contexts in dialogue state: %s", exc)
+            
             state.active_emotions = getattr(session, 'detected_emotions', []) or []
             state.apply_to_session(session)
             self.session_cache.save_session(session)
@@ -498,6 +544,8 @@ class AdaptiveGitaEngine:
         if self._matches_phrase(normalized, self.NEGATIVE_FEEDBACK_PHRASES) and not self._contains_noun_or_number_signal(raw, tokens):
             return "FEEDBACK_NEGATIVE"
         if self._matches_phrase(normalized, self.CONTINUATION_PHRASES):
+            return "CONTINUATION"
+        if has_history and self._references_previous_answer(normalized):
             return "CONTINUATION"
         if self._is_clarification_request(raw, has_history):
             return "CLARIFICATION"
@@ -596,6 +644,47 @@ class AdaptiveGitaEngine:
         return None
 
     @staticmethod
+    def _has_topic_router_context(dialogue_state: DialogueState) -> bool:
+        return bool(
+            getattr(dialogue_state, "active_topic", None)
+            and getattr(dialogue_state, "last_retrieved_verses", None)
+        )
+
+    def _topic_from_query(self, text: str) -> str:
+        """Extract a compact topic label from the current user/resolved query."""
+        normalized = self._normalize_intent_text(text)
+        patterns = [
+            r"what is (.+)$",
+            r"explain (.+)$",
+            r"tell me about (.+)$",
+            r"what does the gita say about (.+)$",
+            r"about (.+)$",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, normalized, re.IGNORECASE)
+            if match:
+                return self._clean_topic_label(match.group(1))
+        return self._clean_topic_label(normalized)
+
+    def _query_from_detected_topic(self, original_query: str, detected_topic: str) -> str:
+        """Build a standalone retrieval query for a newly detected topic."""
+        topic = self._clean_topic_label(detected_topic)
+        if not topic:
+            return original_query
+
+        normalized_original = self._normalize_intent_text(original_query)
+        if topic in normalized_original:
+            return original_query
+        return f"What is {topic} according to the Bhagavad Gita?"
+
+    @staticmethod
+    def _clean_topic_label(text: str) -> str:
+        cleaned = re.sub(r"\b(?:bhagavad|gita|krishna|arjuna|teachings?|verses?|concept|meaning)\b", " ", text, flags=re.IGNORECASE)
+        cleaned = re.sub(r"[^a-z0-9\s'-]+", " ", cleaned.lower())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" .?!")
+        return cleaned[:80] or text.strip()[:80]
+
+    @staticmethod
     def _extract_last_topic(history: list[dict[str, str]]) -> str:
         for item in reversed(history):
             if item.get("role") == "system" and str(item.get("content", "")).startswith("last_topic:"):
@@ -636,6 +725,31 @@ class AdaptiveGitaEngine:
             if any(len(token) > 4 for token in content_tokens):
                 return True
         return False
+
+    @staticmethod
+    def _references_previous_answer(normalized_text: str) -> bool:
+        previous_markers = {
+            "what you just said",
+            "what you said",
+            "previous answer",
+            "last answer",
+            "your answer",
+            "that answer",
+            "above answer",
+        }
+        action_markers = {
+            "summarize",
+            "summary",
+            "explain",
+            "example",
+            "elaborate",
+            "rephrase",
+            "short",
+            "one sentence",
+        }
+        return any(marker in normalized_text for marker in previous_markers) and any(
+            marker in normalized_text for marker in action_markers
+        )
 
     def _is_restatement(self, text: str, history: list[dict[str, str]]) -> bool:
         prior_question = self._find_restatement_target(text, history)
@@ -716,6 +830,7 @@ class AdaptiveGitaEngine:
         emotions: list[EmotionResult],
         retrieval_queries: list[RetrievalQuery],
         conversation_history: list[dict[str, str]] | None = None,
+        session_id: str | None = None,
     ) -> AdaptiveAnswer:
         """
         Run the grounded retrieval route with optional conversation context.
@@ -731,7 +846,10 @@ class AdaptiveGitaEngine:
         warnings: list[str] = []
 
         try:
-            retrieved_verses = self.query_engine.retrieve(retrieval_queries)
+            retrieved_verses = self._retrieve_with_session_cache(
+                retrieval_queries=retrieval_queries,
+                session_id=session_id,
+            )
         except Exception as exc:
             self.logger.exception("Route-aware retrieval failed.")
             warnings.append(f"retrieval_failed: {exc}")
@@ -748,12 +866,33 @@ class AdaptiveGitaEngine:
             warnings.append(
                 f"low_retrieval_confidence: no verse met threshold {self.config.retrieval_confidence_threshold:.2f}"
             )
-            return self.direct_generator.generate(
+            fallback_contexts = self._select_topic_seed_contexts(retrieved_verses)
+            if not fallback_contexts:
+                return self.direct_generator.generate(
+                    user_query=user_query,
+                    route=route,
+                    warnings=warnings,
+                    fallback_note="Retrieved verse relevance was too weak for trustworthy grounding. Respond without fake citations.",
+                    conversation_history=conversation_history,
+                )
+
+            warnings.append("used_low_confidence_topic_seed")
+            generated = self.query_engine.generator.generate(
                 user_query=user_query,
-                route=route,
+                problems=problems,
+                emotions=emotions,
+                contexts=fallback_contexts,
                 warnings=warnings,
-                fallback_note="Retrieved verse relevance was too weak for trustworthy grounding. Respond without fake citations.",
                 conversation_history=conversation_history,
+            )
+            return AdaptiveAnswer(
+                original_query=user_query,
+                route=route,
+                answer=generated.answer,
+                cited_verses=generated.cited_verses,
+                contexts=generated.contexts,
+                warnings=generated.warnings,
+                used_rag=True,
             )
 
         reranked_verses = self.query_engine.rerank(user_query, strong_verses)
@@ -785,6 +924,121 @@ class AdaptiveGitaEngine:
             warnings=generated.warnings,
             used_rag=True,
         )
+
+    def _retrieve_with_session_cache(
+        self,
+        retrieval_queries: list[RetrievalQuery],
+        session_id: str | None,
+    ) -> list[RetrievedVerse]:
+        """Retrieve verses, using the Supabase-backed cache when a session is available."""
+        if not retrieval_queries:
+            return []
+
+        if self.session_cache:
+            cached_verses = None
+            for ret_q in retrieval_queries:
+                cached = self.session_cache.get_cached_retrieval(ret_q.query)
+                if cached:
+                    cached_verses = cached
+                    self.logger.info("[ADAPTIVE_SESSION] Cache hit: %d retrieved verses for '%s'", len(cached), ret_q.query)
+                    break
+
+            if cached_verses:
+                return [
+                    RetrievedVerse(**verse) if isinstance(verse, dict) else verse
+                    for verse in cached_verses
+                ]
+
+        retrieved_verses = self.query_engine.retrieve(retrieval_queries)
+
+        if self.session_cache and session_id and retrieved_verses:
+            serialized = [
+                verse.model_dump() if hasattr(verse, "model_dump") else verse
+                for verse in retrieved_verses
+            ]
+            for ret_q in retrieval_queries:
+                self.session_cache.cache_retrieval(session_id, ret_q.query, serialized)
+            self.logger.info(
+                "[ADAPTIVE_SESSION] Cached %d retrieved verses for %d retrieval queries",
+                len(serialized),
+                len(retrieval_queries),
+            )
+
+        return retrieved_verses
+
+    def _select_topic_seed_contexts(self, retrieved_verses: list[RetrievedVerse]) -> list[RetrievedVerse]:
+        """Pick the best available retrieved verses as the reusable topic seed."""
+        if not retrieved_verses:
+            return []
+
+        ranked = sorted(
+            retrieved_verses,
+            key=lambda verse: (verse.retrieval_score or verse.score or 0.0),
+            reverse=True,
+        )[: self.config.generation_context_top_k]
+        return self.query_engine.build_context(ranked)
+
+    def _deserialize_cached_contexts(self, cached_verses: list[object]) -> list[RetrievedVerse]:
+        """Convert cached verse payloads back into RetrievedVerse objects."""
+        contexts: list[RetrievedVerse] = []
+        for verse in cached_verses:
+            try:
+                contexts.append(RetrievedVerse(**verse) if isinstance(verse, dict) else verse)
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Skipping invalid cached verse: %s", exc)
+        return contexts
+
+    def _run_grounded_route_with_cached_context(
+        self,
+        user_query: str,
+        route: str,
+        problems: list[Problem],
+        emotions: list[EmotionResult],
+        cached_contexts: list[RetrievedVerse],
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> AdaptiveAnswer:
+        """
+        Run grounded route using cached retrieved contexts (for continuations on same topic).
+        
+        Args:
+            user_query: Current user query
+            route: Selected route
+            problems: Identified problems
+            emotions: Detected emotions
+            cached_contexts: Pre-retrieved and cached contexts from prior turn
+            conversation_history: Optional previous conversation turns
+        """
+        warnings: list[str] = ["used_cache:retrieval"]
+        self.logger.info("[ADAPTIVE] Using cached contexts for continuation: %d verses", len(cached_contexts))
+        
+        try:
+            generated = self.query_engine.generator.generate(
+                user_query=user_query,
+                problems=problems,
+                emotions=emotions,
+                contexts=cached_contexts,
+                warnings=warnings,
+                conversation_history=conversation_history,
+            )
+            return AdaptiveAnswer(
+                original_query=user_query,
+                route=route,
+                answer=generated.answer,
+                cited_verses=generated.cited_verses,
+                contexts=generated.contexts,
+                warnings=generated.warnings,
+                used_rag=True,
+            )
+        except Exception as exc:
+            self.logger.exception("Failed to generate using cached contexts: %s", exc)
+            warnings.append(f"cached_generation_failed: {exc}")
+            return self.direct_generator.generate(
+                user_query=user_query,
+                route=route,
+                warnings=warnings,
+                fallback_note="Failed to use cached context. Respond directly and cautiously.",
+                conversation_history=conversation_history,
+            )
 
     def _filter_by_confidence(self, verses: list[RetrievedVerse]) -> list[RetrievedVerse]:
         threshold = self.config.retrieval_confidence_threshold

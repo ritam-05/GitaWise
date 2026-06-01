@@ -13,7 +13,7 @@ logger.info("[RERANKER] Torch imported")
 
 from .config import QueryEngineConfig, get_logger
 logger.info("[RERANKER] Config imported")
-from .reranker_model import get_reranker_model, get_reranker_tokenizer
+from .reranker_model import get_reranker_model, get_reranker_tokenizer, get_reranker_device
 logger.info("[RERANKER] Reranker model functions imported (lazy)")
 from .models import RetrievedVerse
 logger.info("[RERANKER] Models imported")
@@ -28,8 +28,10 @@ class GlobalVerseReranker:
     def __init__(self, config: QueryEngineConfig) -> None:
         self.config = config
         # Models are loaded at app startup, not per-request
-        # Get device from singleton (same as used during initialization)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Get device from singleton to match model's actual device
+        device_str = get_reranker_device()
+        self.device = torch.device(device_str)
+        LOGGER.info("[RERANKER] Using device for inference: %s", self.device)
 
     def rerank(
         self,
@@ -79,28 +81,59 @@ class GlobalVerseReranker:
 
     def _score_pairs(self, query: str, passages: list[str]) -> list[float]:
         """Score query-passage pairs using the singleton reranker model."""
-        model = get_reranker_model()
-        tokenizer = get_reranker_tokenizer()
-        all_scores: list[float] = []
+        try:
+            model = get_reranker_model()
+            tokenizer = get_reranker_tokenizer()
+            
+            # Ensure inputs follow the model's actual device. Some model wrappers
+            # can report/choose a device before lazy initialization has completed.
+            model = model.to(self.device)
+            model_device = self._model_device(model)
+            if model_device != self.device:
+                LOGGER.warning(
+                    "[RERANKER] Requested device %s but model is on %s; using model device for inputs",
+                    self.device,
+                    model_device,
+                )
+                self.device = model_device
+            LOGGER.debug("[RERANKER] Model/Input device: %s", self.device)
+            
+            all_scores: list[float] = []
 
-        for start in range(0, len(passages), self.config.reranker_batch_size):
-            batch_passages = passages[start : start + self.config.reranker_batch_size]
-            pairs = [[query, passage] for passage in batch_passages]
-            inputs = tokenizer(
-                pairs,
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="pt",
-            )
-            inputs = {key: value.to(self.device) for key, value in inputs.items()}
+            for start in range(0, len(passages), self.config.reranker_batch_size):
+                batch_passages = passages[start : start + self.config.reranker_batch_size]
+                pairs = [[query, passage] for passage in batch_passages]
+                inputs = tokenizer(
+                    pairs,
+                    padding=True,
+                    truncation=True,
+                    max_length=512,
+                    return_tensors="pt",
+                )
+                # Move inputs to the same device as the model
+                inputs = {key: value.to(self.device) for key, value in inputs.items()}
 
-            with torch.no_grad():
-                logits = model(**inputs, return_dict=True).logits.view(-1).float()
+                with torch.no_grad():
+                    logits = model(**inputs, return_dict=True).logits.view(-1).float()
 
-            all_scores.extend(self._normalize_scores(logits.cpu().tolist()))
+                all_scores.extend(self._normalize_scores(logits.cpu().tolist()))
 
-        return all_scores
+            return all_scores
+        except RuntimeError as exc:
+            if "device" in str(exc).lower() or "cuda" in str(exc).lower():
+                LOGGER.exception("[RERANKER] Device mismatch error during reranking: %s\nTry setting FORCE_CPU=1 to disable GPU", exc)
+            raise
+
+    @staticmethod
+    def _model_device(model: torch.nn.Module) -> torch.device:
+        """Return the actual device used by a model's parameters or buffers."""
+        try:
+            return next(model.parameters()).device
+        except StopIteration:
+            try:
+                return next(model.buffers()).device
+            except StopIteration:
+                return torch.device("cpu")
 
     @staticmethod
     def _normalize_scores(raw_scores: list[float]) -> list[float]:

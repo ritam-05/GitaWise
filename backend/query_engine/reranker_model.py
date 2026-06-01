@@ -17,10 +17,10 @@ logger.info("[RERANKER_MODEL] Transformers import deferred (lazy load)")
 
 class RerankerModelSingleton:
     """Thread-safe singleton for BGE reranker model.
-    
-    CUDA REQUIRED: This implementation forces GPU usage with FP16.
-    Fails at startup if CUDA is not available.
-    
+
+    Defaults to CPU for stability on Windows CUDA stacks. Set
+    USE_CUDA_RERANKER=1 to opt in to GPU reranking with FP16.
+
     Loads ONCE at startup, reuses across all requests.
     """
 
@@ -53,13 +53,14 @@ class RerankerModelSingleton:
         
         logger.info("[RERANKER] Checking CUDA availability...")
         force_cpu = os.getenv("FORCE_CPU", "").lower() in ("1", "true", "yes")
+        use_cuda_reranker = os.getenv("USE_CUDA_RERANKER", "").lower() in ("1", "true", "yes")
         cuda_available = torch.cuda.is_available()
-        if not cuda_available and not force_cpu:
+        if use_cuda_reranker and not cuda_available and not force_cpu:
             logger.warning(
                 "CUDA not available; falling back to CPU for reranker (set FORCE_CPU=1 to force)."
             )
 
-        if cuda_available and not force_cpu:
+        if cuda_available and use_cuda_reranker and not force_cpu:
             device = "cuda"
             use_fp16 = True
             cls._device = device
@@ -74,7 +75,7 @@ class RerankerModelSingleton:
             use_fp16 = False
             cls._device = device
             cls._use_fp16 = use_fp16
-            logger.info("[RERANKER] Using CPU for reranker (development mode)")
+            logger.info("[RERANKER] Using CPU for reranker (set USE_CUDA_RERANKER=1 to opt in to GPU)")
 
         # Load tokenizer
         logger.info("[RERANKER] Loading reranker tokenizer: %s", model_name)
@@ -133,13 +134,12 @@ class RerankerModelSingleton:
     @classmethod
     def get_device(cls) -> str:
         """Get the device used for the reranker model.
-        
+
         Returns:
-            str: Always "cuda" (CUDA is required for production).
+            str: Device used by the reranker model.
         """
         if cls._device is None:
-            # Not initialized yet; assume CPU for safety
-            cls._device = os.getenv("DEFAULT_DEVICE", "cpu")
+            cls.initialize()
         return cls._device
 
     @classmethod
@@ -167,7 +167,7 @@ class RerankerModelSingleton:
         """
         model = cls.get_instance()
         tokenizer = cls.get_tokenizer()
-        device = cls.get_device()
+        device = next(model.parameters()).device
         all_scores: list[float] = []
 
         for start in range(0, len(pairs), batch_size):
@@ -194,6 +194,7 @@ class RerankerModelSingleton:
 # Public interface for import
 get_reranker_model = RerankerModelSingleton.get_instance
 get_reranker_tokenizer = RerankerModelSingleton.get_tokenizer
+get_reranker_device = RerankerModelSingleton.get_device
 initialize_reranker_model = RerankerModelSingleton.initialize
 score_reranker_pairs = RerankerModelSingleton.score_pairs
 

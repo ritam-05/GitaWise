@@ -18,10 +18,10 @@ logger.info("[EMBEDDING_MODEL] SentenceTransformer import deferred (lazy load)")
 
 class EmbeddingModelSingleton:
     """Thread-safe singleton for SentenceTransformer embedding model.
-    
-    CUDA REQUIRED: This implementation forces GPU usage.
-    Fails at startup if CUDA is not available.
-    
+
+    Defaults to CPU for stability on Windows CUDA stacks. Set
+    USE_CUDA_EMBEDDINGS=1 to opt in to GPU embeddings.
+
     Loads ONCE at startup, reuses across all requests.
     """
 
@@ -52,13 +52,14 @@ class EmbeddingModelSingleton:
         
         logger.info("[EMBEDDING] Checking CUDA availability...")
         force_cpu = os.getenv("FORCE_CPU", "").lower() in ("1", "true", "yes")
+        use_cuda_embeddings = os.getenv("USE_CUDA_EMBEDDINGS", "").lower() in ("1", "true", "yes")
         cuda_available = torch.cuda.is_available()
-        if not cuda_available and not force_cpu:
+        if use_cuda_embeddings and not cuda_available and not force_cpu:
             logger.warning(
                 "CUDA not available; falling back to CPU for embeddings (set FORCE_CPU=1 to force)."
             )
 
-        if cuda_available and not force_cpu:
+        if cuda_available and use_cuda_embeddings and not force_cpu:
             device = "cuda"
             cls._device = device
             try:
@@ -69,7 +70,7 @@ class EmbeddingModelSingleton:
         else:
             device = "cpu"
             cls._device = device
-            logger.info("[EMBEDDING] Using CPU for embeddings (development mode)")
+            logger.info("[EMBEDDING] Using CPU for embeddings (set USE_CUDA_EMBEDDINGS=1 to opt in to GPU)")
 
 
         # Load model with device placement
@@ -103,13 +104,12 @@ class EmbeddingModelSingleton:
     @classmethod
     def get_device(cls) -> str:
         """Get the device used for the embedding model.
-        
+
         Returns:
-            str: Always "cuda" (CUDA is required for production).
+            str: Device used by the embedding model.
         """
         if cls._device is None:
-            # Not initialized yet; assume CPU for safety
-            cls._device = os.getenv("DEFAULT_DEVICE", "cpu")
+            cls.initialize()
         return cls._device
 
     @classmethod
@@ -146,6 +146,7 @@ class EmbeddingModelSingleton:
 
 # Public interface for import
 get_embedding_model = EmbeddingModelSingleton.get_instance
+get_embedding_device = EmbeddingModelSingleton.get_device
 initialize_embedding_model = EmbeddingModelSingleton.initialize
 encode_embeddings = EmbeddingModelSingleton.encode
 

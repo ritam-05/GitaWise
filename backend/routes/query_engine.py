@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 logger.info("[ROUTES] Query engine routes module starting...")
 
+from backend.cache import CacheKeys
 from backend.query_engine import AdaptiveGitaEngine, GitaQueryEngine
 
 logger.info("[ROUTES] ✓ Query engine modules imported")
@@ -138,6 +139,13 @@ class GeneratedAnswerResponse(BaseModel):
     warnings: list[str]
     contexts: list[dict[str, object]]
     used_rag: bool
+
+
+class ClearSessionResponse(BaseModel):
+    """Response returned after clearing a chat session cache."""
+
+    cleared: bool
+    session_id: str
 
 
 @lru_cache(maxsize=1)
@@ -312,4 +320,23 @@ def answer_query(request: Request, payload: QueryEngineRequest) -> GeneratedAnsw
         raise HTTPException(
             status_code=500,
             detail=f"Answer generation failed: {exc}",
+        ) from exc
+
+
+@router.delete("/sessions/{session_id}", response_model=ClearSessionResponse)
+def clear_chat_session(request: Request, session_id: str) -> ClearSessionResponse:
+    """Clear cached conversational memory for a chat session."""
+    cache_manager = getattr(request.app.state, "cache_manager", None)
+    if cache_manager is None:
+        logger.info("[SESSION] No cache manager available while clearing session: %s", session_id)
+        return ClearSessionResponse(cleared=False, session_id=session_id)
+
+    try:
+        cache_manager.delete(CacheKeys.session_context_key(session_id))
+        logger.info("[SESSION] Cleared chat session cache: %s", session_id)
+        return ClearSessionResponse(cleared=True, session_id=session_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear chat session: {exc}",
         ) from exc

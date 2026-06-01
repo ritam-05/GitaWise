@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import uuid
+
+# Add parent directory to path for config import
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import SUPABASE_CACHE_TABLE, SUPABASE_SERVICE_KEY, SUPABASE_URL
 

@@ -28,7 +28,6 @@ EmotionLabel = Literal[
 ]
 
 RouteLabel = Literal[
-    "generic_chat",
     "philosophical_guidance",
     "emotion_guidance",
     "gita_rag",

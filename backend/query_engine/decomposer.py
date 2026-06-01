@@ -1,4 +1,4 @@
-"""LLM-backed query decomposition for philosophical and emotional concerns."""
+"""LLM-backed query decomposition for philosophical and emotional concerns using LangChain."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import re
 from urllib import error, request
 from typing import Any
 
-from groq import Groq
+from langchain_groq import ChatGroq
+from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import QueryEngineConfig, get_logger
@@ -17,34 +18,44 @@ LOGGER = get_logger(__name__)
 
 
 class GroqJSONClient:
-    """Thin helper around the Groq chat completion API for strict JSON calls."""
+    """LangChain-backed Groq client for strict JSON calls and text generation."""
 
     def __init__(self, config: QueryEngineConfig) -> None:
         self.config = config
-        self.client = Groq(api_key=config.groq_api_key)
+        self.llm = ChatGroq(
+            api_key=config.groq_api_key,
+            model_name=config.groq_model_name,
+            temperature=config.groq_temperature,
+        )
+        self.json_parser = JsonOutputParser()
 
     def invoke_json(self, prompt: str, model_name: str | None = None) -> dict[str, Any]:
         """
-        Invoke Groq with JSON response format.
+        Invoke Groq with JSON response format using LangChain.
         
         Args:
             prompt: The prompt to send
-            model_name: Optional model override. Uses config.groq_model_name if not provided.
+            model_name: Optional model override.
         """
         model = model_name or self.config.groq_model_name
+        llm = ChatGroq(
+            api_key=self.config.groq_api_key,
+            model_name=model,
+            temperature=self.config.groq_temperature,
+        )
+        
         last_error: Exception | None = None
         for attempt in range(1, self.config.groq_max_retries + 2):
             try:
-                completion = self.client.chat.completions.create(
-                    model=model,
-                    temperature=self.config.groq_temperature,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": "Return valid JSON only."},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                raw_content = completion.choices[0].message.content or "{}"
+                # Use LangChain chain: prompt -> LLM -> JSON parser
+                from langchain_core.messages import HumanMessage, SystemMessage
+                
+                messages = [
+                    SystemMessage(content="Return valid JSON only."),
+                    HumanMessage(content=prompt),
+                ]
+                response = llm.invoke(messages)
+                raw_content = response.content or "{}"
                 return self._extract_json(raw_content)
             except Exception as exc:
                 last_error = exc
@@ -54,28 +65,30 @@ class GroqJSONClient:
 
     def invoke_text(self, prompt: str, model_name: str | None = None) -> str:
         """
-        Invoke Groq with text response.
+        Invoke Groq with text response using LangChain.
         
         Args:
             prompt: The prompt to send
-            model_name: Optional model override. Uses config.groq_model_name if not provided.
+            model_name: Optional model override.
         """
         model = model_name or self.config.groq_model_name
+        llm = ChatGroq(
+            api_key=self.config.groq_api_key,
+            model_name=model,
+            temperature=self.config.groq_temperature,
+        )
+        
         last_error: Exception | None = None
         for attempt in range(1, self.config.groq_max_retries + 2):
             try:
-                completion = self.client.chat.completions.create(
-                    model=model,
-                    temperature=self.config.groq_temperature,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "Respond carefully and only from the provided Bhagavad Gita context.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                return (completion.choices[0].message.content or "").strip()
+                from langchain_core.messages import HumanMessage, SystemMessage
+                
+                messages = [
+                    SystemMessage(content="Respond carefully and only from the provided Bhagavad Gita context."),
+                    HumanMessage(content=prompt),
+                ]
+                response = llm.invoke(messages)
+                return (response.content or "").strip()
             except Exception as exc:
                 last_error = exc
                 LOGGER.warning("Groq text attempt %s failed: %s", attempt, exc)

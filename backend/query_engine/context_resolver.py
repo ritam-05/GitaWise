@@ -1,4 +1,4 @@
-"""Lightweight conversational context resolver for follow-up query rewriting.
+"""Lightweight conversational context resolver for follow-up query rewriting using LangChain.
 
 This module rewrites ambiguous follow-up queries into standalone queries suitable
 for routing and retrieval. It uses the small analyzer Groq model for fast,
@@ -7,9 +7,13 @@ cheap, deterministic JSON outputs.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Iterable, List
+
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from .decomposer import GroqJSONClient
 from .config import QueryEngineConfig, get_logger
@@ -33,17 +37,22 @@ _TRIGGER_TOKENS = {
 
 
 class ContextResolver:
-    """Resolve short or ambiguous follow-up queries into standalone queries.
+    """Resolve short or ambiguous follow-up queries into standalone queries using LangChain.
 
     Usage:
         resolver = ContextResolver(groq_client, config)
         resolved = resolver.resolve_if_needed(query, conversation_history)
     """
 
-    def __init__(self, groq_client: GroqJSONClient, config: QueryEngineConfig) -> None:
+    def __init__(self, groq_client: GroqJSONClient | None = None, config: QueryEngineConfig | None = None) -> None:
         self.groq_client = groq_client
-        self.config = config
+        self.config = config or QueryEngineConfig()
         self.logger = LOGGER
+        self.llm = ChatGroq(
+            api_key=self.config.groq_api_key,
+            model_name=getattr(self.config, "groq_analyzer_model_name", self.config.groq_model_name),
+            temperature=self.config.groq_temperature,
+        )
 
     @staticmethod
     def _is_ambiguous(user_query: str) -> bool:
@@ -82,9 +91,23 @@ class ContextResolver:
 
             prompt = self._build_prompt(user_query, context_window)
 
-            # Use the small analyzer model for speed/cheapness
-            model_name = getattr(self.config, "groq_analyzer_model_name", None)
-            result = self.groq_client.invoke_json(prompt, model_name=model_name)
+            # Use LangChain ChatGroq for JSON response
+            messages = [
+                SystemMessage(content="Return valid JSON only."),
+                HumanMessage(content=prompt),
+            ]
+            response = self.llm.invoke(messages)
+            raw_content = response.content or "{}"
+            
+            # Parse JSON response
+            try:
+                result = json.loads(raw_content)
+            except json.JSONDecodeError:
+                import re
+                match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+                if not match:
+                    raise ValueError("LLM response did not contain a JSON object.")
+                result = json.loads(match.group(0))
 
             if not isinstance(result, dict):
                 raise ValueError("Resolver expected JSON object from LLM")
