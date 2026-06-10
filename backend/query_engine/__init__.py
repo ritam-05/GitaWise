@@ -1,16 +1,19 @@
 """Public exports for the GitaWise query engine package."""
 
-import logging
-logger = logging.getLogger(__name__)
-logger.info("[PACKAGE] backend.query_engine __init__ starting...")
+from __future__ import annotations
 
-logger.info("[PACKAGE] Importing adaptive_engine...")
-from .adaptive_engine import AdaptiveGitaEngine
-logger.info("[PACKAGE] ✓ AdaptiveGitaEngine imported")
-
-logger.info("[PACKAGE] Importing engine...")
-from .engine import GitaQueryEngine
-logger.info("[PACKAGE] ✓ GitaQueryEngine imported")
+from typing import Any
 
 __all__ = ["AdaptiveGitaEngine", "GitaQueryEngine"]
-logger.info("[PACKAGE] ✓ query_engine package fully initialized")
+
+
+def __getattr__(name: str) -> Any:
+    if name == "AdaptiveGitaEngine":
+        from .adaptive_engine import AdaptiveGitaEngine
+
+        return AdaptiveGitaEngine
+    if name == "GitaQueryEngine":
+        from .engine import GitaQueryEngine
+
+        return GitaQueryEngine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -101,14 +101,16 @@ GITA_EMBEDDINGS_NPY         # datasets/gita_embeddings.npy
 GITA_METADATA_PKL           # datasets/gita_metadata.pkl
 ```
 
-### 3. Embedding Model Configuration (3 variables)
+### 3. Embedding Model Configuration (2 variables)
 Settings for generating embeddings.
 
 ```python
-EMBEDDING_MODEL_NAME        # "BAAI/bge-large-en-v1.5"
+EMBEDDING_MODEL_NAME        # "BAAI/bge-small-en-v1.5"
 EMBEDDING_BATCH_SIZE        # 32 (chunks processed per batch)
-EMBEDDING_DIMENSION         # 1024 (embedding vector size)
 ```
+
+Embedding dimension is derived from the loaded SentenceTransformer model with
+`model.get_sentence_embedding_dimension()`.
 
 ### 4. Qdrant Vector Store Configuration (4 variables)
 Settings for the Qdrant vector database.
@@ -201,11 +203,13 @@ All modules automatically use the new path.
 
 ### Change the Embedding Model
 ```python
-# Before
-EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
-
-# After (example)
 EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+```
+
+After changing this value, rebuild Qdrant with:
+
+```bash
+python scripts/rebuild_qdrant_index.py
 ```
 
 ### Change Batch Sizes
@@ -266,7 +270,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_DIR = PROJECT_ROOT / "datasets"
 INPUT_PATH = DATASET_DIR / "gita_chunks.csv"         # ❌ Hardcoded (duplicate)
 
-MODEL_NAME = "BAAI/bge-large-en-v1.5"                # ❌ Hardcoded
+MODEL_NAME = "BAAI/<old-embedding-model>"            # ❌ Hardcoded
 BATCH_SIZE = 32                                       # ❌ Hardcoded
 ```
 
@@ -296,7 +300,7 @@ GITA_CHUNKS_CSV = DATASETS_DIR / "gita_chunks.csv"
 GITA_EMBEDDINGS_NPY = DATASETS_DIR / "gita_embeddings.npy"
 
 # ✅ All model settings in ONE place
-EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
+EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_BATCH_SIZE = 32
 
 # ✅ All Qdrant settings in ONE place
@@ -330,7 +334,7 @@ embeddings = generate_embeddings(texts, model, EMBEDDING_BATCH_SIZE)  # ✅ Uses
 from config import GITA_EMBEDDINGS_NPY, QDRANT_COLLECTION_NAME, QDRANT_UPLOAD_BATCH_SIZE
 
 embeddings = load_embeddings(GITA_EMBEDDINGS_NPY)  # ✅ Uses config
-client.recreate_collection(QDRANT_COLLECTION_NAME, ...)  # ✅ Uses config
+client.create_collection(QDRANT_COLLECTION_NAME, ...)  # ✅ Uses config
 ```
 
 **Benefits**: No duplication, single change point, consistent across all modules, cleaner code.
@@ -345,7 +349,7 @@ client.recreate_collection(QDRANT_COLLECTION_NAME, ...)  # ✅ Uses config
 **Old Way (❌ Edit 3 files)**:
 ```
 1. Open generate_embeddings.py
-2. Find: MODEL_NAME = "BAAI/bge-large-en-v1.5"
+2. Find: MODEL_NAME = "BAAI/<old-embedding-model>"
 3. Change: MODEL_NAME = "BAAI/bge-small-en-v1.5"
 4. Risk: Might miss other files using this value
 ```

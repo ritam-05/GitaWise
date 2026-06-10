@@ -87,6 +87,8 @@ class CacheManager:
         self._supabase_enabled = bool(self._supabase_url and self._supabase_key)
         self._supabase_ready = False
         self._supabase_timeout_seconds = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", "10"))
+        self._supabase_retry_seconds = int(os.getenv("SUPABASE_RETRY_SECONDS", "60"))
+        self._last_supabase_failure: datetime | None = None
         
         logger.info(
             "[CACHE] Initialized CacheManager (max_memory=%d, default_ttl=%ds, supabase=%s, table=%s)",
@@ -115,6 +117,12 @@ class CacheManager:
             return False
         if self._supabase_ready:
             return True
+        if (
+            self._last_supabase_failure
+            and (datetime.utcnow() - self._last_supabase_failure).total_seconds()
+            < self._supabase_retry_seconds
+        ):
+            return False
 
         try:
             response = requests.get(
@@ -125,12 +133,16 @@ class CacheManager:
             )
             response.raise_for_status()
             self._supabase_ready = True
+            self._last_supabase_failure = None
             logger.info("[CACHE] Supabase cache connected successfully")
             return True
         except Exception as exc:
-            logger.warning("[CACHE] Supabase cache unavailable, using memory-only cache: %s", exc)
-            self._supabase_enabled = False
+            logger.warning(
+                "[CACHE] Supabase cache unavailable, using memory-only cache until retry: %s",
+                exc,
+            )
             self._supabase_ready = False
+            self._last_supabase_failure = datetime.utcnow()
             return False
 
     @staticmethod

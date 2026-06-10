@@ -1,125 +1,29 @@
-# Target Python: 3.11.9
+# Target Python: 3.11
 
-# =========================
-# Core Backend
-# =========================
-fastapi
-uvicorn
-python-multipart
-pydantic
-pydantic-core
-pydantic-settings
-python-dotenv
+# Backend API
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-dotenv==1.0.1
+pydantic==2.10.4
+pydantic-core==2.27.2
+requests==2.32.3
 
-# =========================
-# LangChain / LangGraph
-# =========================
-langchain
-langchain-core
-langchain-community
-langchain-groq
-langchain-google-genai
-langgraph
+# LLM orchestration
+langchain==0.3.14
+langchain-core==0.3.29
+langchain-groq==0.2.3
+groq==0.13.1
 
-# =========================
-# Vector Database
-# =========================
-qdrant-client
-
-# =========================
-# Embeddings & Reranking
-# =========================
+# Vector retrieval
+qdrant-client==1.12.1
 sentence-transformers==3.0.1
 transformers==4.44.2
-# Use GPU-enabled PyTorch wheels when running on a CUDA-capable machine.
-# The lines below target CUDA 12.1 (cu121). Uncomment the GPU set for GPU installs
-# and comment out the CPU set. You may need to change the CUDA tag to match your GPU.
---extra-index-url https://download.pytorch.org/whl/cu121
-# GPU (CUDA 12.1) - uncomment these for GPU-enabled environment
-torch==2.4.0+cu121
-torchvision==0.19.0+cu121
-torchaudio==2.4.0+cu121
 
-# CPU-only fallback (comment out the GPU lines above and uncomment these for CPU installs)
-# torch==2.4.0
-# torchvision==0.19.0
-# torchaudio==2.4.0
+# CPU PyTorch for Docker/Hugging Face Spaces.
+# Use a CUDA-specific install outside Docker only if you explicitly need GPU locally.
+torch==2.4.0
 
-FlagEmbedding
-
-# =========================
-# LLM Providers
-# =========================
-google-genai
-google-generativeai
-groq
-
-# =========================
-# Database & Memory
-# =========================
-sqlalchemy
-psycopg2-binary
-redis
-
-# =========================
-# Async Tasks
-# =========================
-celery
-
-# =========================
-# Search / Retrieval
-# =========================
-rank-bm25
+# Data and utilities used by routes/vector scripts
 numpy==1.26.4
-pyarrow==21.0.0
-scikit-learn
-
-# =========================
-# Document Processing
-# =========================
-pypdf
-pdfplumber
-python-docx
-pandas
-openpyxl
-
-# =========================
-# OCR
-# =========================
-paddleocr
-paddlepaddle
-
-# =========================
-# Audio / Speech
-# =========================
-gtts
-pydub
-
-# =========================
-# API Requests
-# =========================
-requests
-httpx
-
-# =========================
-# Monitoring & Evaluation
-# =========================
-langfuse
-ragas
-
-# =========================
-# Utilities
-# =========================
-tqdm
-orjson
-aiofiles
-tenacity
-
-# =========================
-# Optional Dev Tools
-# =========================
-jupyter
-ipykernel
-pytest
-black
-isort
+pandas==2.2.3
+tqdm==4.67.1

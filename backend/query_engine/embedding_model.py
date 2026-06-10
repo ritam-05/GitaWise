@@ -12,8 +12,14 @@ logger.info("[EMBEDDING_MODEL] Module starting...")
 import torch
 logger.info("[EMBEDDING_MODEL] Torch imported")
 
+from .config import EMBEDDING_MODEL_NAME
+
 # DO NOT import SentenceTransformer here - defer until actually needed
 logger.info("[EMBEDDING_MODEL] SentenceTransformer import deferred (lazy load)")
+
+
+def get_embedding_dimension(model) -> int:
+    return model.get_sentence_embedding_dimension()
 
 
 class EmbeddingModelSingleton:
@@ -35,7 +41,7 @@ class EmbeddingModelSingleton:
         return cls._instance
 
     @classmethod
-    def initialize(cls, model_name: str = "BAAI/bge-large-en-v1.5") -> None:
+    def initialize(cls, model_name: str = EMBEDDING_MODEL_NAME) -> None:
         """Initialize the embedding model and detect CUDA.
         
         Call this ONCE during app startup, before any requests.
@@ -82,6 +88,12 @@ class EmbeddingModelSingleton:
                 trust_remote_code=True,
             )
             cls._model.eval()  # Set to eval mode
+            embedding_dimension = get_embedding_dimension(cls._model)
+            logger.info(
+                "[EMBEDDING] Embedding model details: model=%s, dimension=%s",
+                model_name,
+                embedding_dimension,
+            )
             logger.info("[EMBEDDING] ✓ Embedding model loaded successfully on %s", device)
         except Exception as e:
             logger.exception("Failed to load embedding model: %s", e)

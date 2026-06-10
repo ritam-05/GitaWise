@@ -27,12 +27,15 @@ from config import (
     PROJECT_ROOT,
     GITA_EMBEDDINGS_NPY,
     GITA_METADATA_PKL,
+    EMBEDDING_MODEL_NAME,
     QDRANT_COLLECTION_NAME,
     QDRANT_UPLOAD_BATCH_SIZE,
     QDRANT_API_KEY,
     QDRANT_ENDPOINT,
     QDRANT_TIMEOUT,
 )
+from backend.query_engine.embedding_model import get_embedding_dimension
+from sentence_transformers import SentenceTransformer
 
 
 def load_environment() -> tuple[str, str]:
@@ -83,20 +86,36 @@ def create_qdrant_client(endpoint: str, api_key: str) -> QdrantClient:
     return QdrantClient(url=endpoint, api_key=api_key, timeout=QDRANT_TIMEOUT)
 
 
+def load_embedding_dimension(model_name: str = EMBEDDING_MODEL_NAME) -> int:
+    """Load the configured embedding model and return its vector dimension."""
+    print(f"Loading embedding model for dimension validation: {model_name}")
+    model = SentenceTransformer(model_name)
+    embedding_dimension = get_embedding_dimension(model)
+    print(f"Embedding model dimension: {embedding_dimension}")
+    return embedding_dimension
+
+
 def recreate_collection(
     client: QdrantClient,
     collection_name: str,
-    vector_size: int,
+    embedding_dimension: int,
 ) -> None:
     """Create or replace the target collection with cosine distance."""
-    client.recreate_collection(
+    try:
+        client.get_collection(collection_name)
+    except Exception:
+        pass
+    else:
+        client.delete_collection(collection_name=collection_name)
+
+    client.create_collection(
         collection_name=collection_name,
         vectors_config=models.VectorParams(
-            size=vector_size,
+            size=embedding_dimension,
             distance=models.Distance.COSINE,
         ),
     )
-    print(f"Collection creation success: {collection_name} ({vector_size} dimensions)")
+    print(f"Collection creation success: {collection_name} ({embedding_dimension} dimensions)")
 
 
 def stable_point_id(metadata: dict[str, Any], fallback_index: int) -> int:
@@ -188,10 +207,17 @@ def main() -> None:
         embeddings = load_embeddings(GITA_EMBEDDINGS_NPY)
         metadata = load_metadata(GITA_METADATA_PKL)
 
-        vector_size = embeddings.shape[1]
+        embedding_dimension = load_embedding_dimension()
+        if embeddings.shape[1] != embedding_dimension:
+            raise RuntimeError(
+                f"Saved embeddings dimension ({embeddings.shape[1]}) does not match "
+                f"configured embedding model dimension ({embedding_dimension}). "
+                "Regenerate embeddings before uploading."
+            )
+
         client = create_qdrant_client(endpoint, api_key)
 
-        recreate_collection(client, QDRANT_COLLECTION_NAME, vector_size)
+        recreate_collection(client, QDRANT_COLLECTION_NAME, embedding_dimension)
         points = build_points(embeddings, metadata)
         uploaded = upload_points(client, QDRANT_COLLECTION_NAME, points)
 

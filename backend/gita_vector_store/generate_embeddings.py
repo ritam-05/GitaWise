@@ -22,6 +22,7 @@ from config import (
     REQUIRED_EMBEDDING_COLUMNS,
     CSV_ENCODING,
 )
+from backend.query_engine.embedding_model import get_embedding_dimension
 
 
 def load_chunks(path: Path) -> pd.DataFrame:
@@ -47,7 +48,9 @@ def validate_schema(df: pd.DataFrame) -> None:
 def load_embedding_model(model_name: str = EMBEDDING_MODEL_NAME) -> SentenceTransformer:
     """Load the sentence-transformers model."""
     print(f"Loading embedding model: {model_name}")
-    return SentenceTransformer(model_name)
+    model = SentenceTransformer(model_name)
+    print(f"Embedding dimension: {get_embedding_dimension(model)}")
+    return model
 
 
 def generate_embeddings(
@@ -116,8 +119,15 @@ def main() -> None:
         raise ValueError("Found empty retrieval_text values in gita_chunks.csv.")
 
     model = load_embedding_model()
+    embedding_dimension = get_embedding_dimension(model)
     embeddings = generate_embeddings(texts, model)
     metadata = build_metadata(df)
+
+    if embeddings.shape[1] != embedding_dimension:
+        raise RuntimeError(
+            f"Generated embedding dimension ({embeddings.shape[1]}) does not match "
+            f"model dimension ({embedding_dimension})."
+        )
 
     if len(embeddings) != len(metadata):
         raise ValueError(

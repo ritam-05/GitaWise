@@ -37,6 +37,8 @@ logger.info("[BOOT] Importing routes...")
 from backend.routes.health import router as health_router
 logger.info("[BOOT] ✓ Health router imported")
 from backend.routes.query_engine import router as query_engine_router
+from backend.query_engine.config import load_query_engine_config
+from backend.query_engine.startup_validation import validate_query_engine_startup
 logger.info("[BOOT] ✓ Query engine router imported")
 
 
@@ -91,12 +93,15 @@ app.include_router(query_engine_router)
 async def startup_event() -> None:
     """Initialize resources at app startup.
     
-    - Loads models once (lazy loading deferred to first request)
+    - Validates embedding model and Qdrant collection compatibility
     - Initializes global cache if available
     """
     logger.info("=" * 60)
     logger.info("[STARTUP] GitaWise Backend Startup Event")
     logger.info("=" * 60)
+
+    config = load_query_engine_config()
+    validate_query_engine_startup(config)
     
     # Initialize global cache
     if CACHE_AVAILABLE:
@@ -117,7 +122,7 @@ async def startup_event() -> None:
         app.state.cache_manager = None
         logger.warning("[STARTUP] Cache not available")
     
-    logger.info("[STARTUP] ✓ Models will be initialized on first request (lazy loading)")
+    logger.info("[STARTUP] ✓ Embedding/Qdrant validation completed")
     logger.info("[STARTUP] ✓ Session-aware routing enabled")
     logger.info("[STARTUP] ✓ Backend ready for requests at http://127.0.0.1:8000")
     logger.info("=" * 60)

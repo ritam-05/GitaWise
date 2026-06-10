@@ -41,14 +41,14 @@ GITA_METADATA_PKL = DATASETS_DIR / "gita_metadata.pkl"
 # EMBEDDING MODEL CONFIGURATION
 # =====================================================
 
-# Sentence Transformer model for generating embeddings
-EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
+# Sentence Transformer model for generating embeddings and runtime queries
+EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+
+# Cross-encoder model for reranking retrieved passages
+RERANKER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 
 # Batch size for embedding generation
 EMBEDDING_BATCH_SIZE = 32
-
-# Embedding dimension (output size from BGE model)
-EMBEDDING_DIMENSION = 1024
 
 # =====================================================
 # QDRANT VECTOR STORE CONFIGURATION
@@ -212,6 +212,7 @@ def get_config_summary() -> dict:
         "PROJECT_ROOT": str(PROJECT_ROOT),
         "DATASETS_DIR": str(DATASETS_DIR),
         "EMBEDDING_MODEL": EMBEDDING_MODEL_NAME,
+        "RERANKER_MODEL": RERANKER_MODEL_NAME,
         "QDRANT_COLLECTION": QDRANT_COLLECTION_NAME,
         "QDRANT_ENDPOINT": QDRANT_ENDPOINT,
         "SUPABASE_URL": SUPABASE_URL,

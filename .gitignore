@@ -50,7 +50,6 @@ env/
 # Generated data/cache files
 datasets/
 backend/memory/
-backend/cache/
 *.sqlite
 *.sqlite3
 *.db
@@ -63,6 +62,7 @@ logs/
 *.tmp
 *.bak
 .cache/
+.huggingface/
 
 # OS
 Thumbs.db

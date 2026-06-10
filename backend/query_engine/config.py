@@ -12,6 +12,10 @@ from pydantic import BaseModel, Field, field_validator
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
+import sys
+sys.path.insert(0, str(PROJECT_ROOT))
+from config import EMBEDDING_MODEL_NAME, QDRANT_COLLECTION_NAME, RERANKER_MODEL_NAME
+
 
 class QueryEngineConfig(BaseModel):
     """Runtime configuration for decomposition, retrieval, and reranking."""
@@ -32,9 +36,9 @@ class QueryEngineConfig(BaseModel):
     groq_analyzer_model_name: str = "llama-3.1-8b-instant"
     sarvam_model_name: str = "sarvam-m"
     sarvam_fallback_model_name: str = "sarvam-m"
-    embedding_model_name: str = "BAAI/bge-large-en-v1.5"
-    reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
-    qdrant_collection_name: str = "gita_verses"
+    embedding_model_name: str = EMBEDDING_MODEL_NAME
+    reranker_model_name: str = RERANKER_MODEL_NAME
+    qdrant_collection_name: str = QDRANT_COLLECTION_NAME
     qdrant_top_k_per_problem: int = 5
     final_top_k: int = 6
     retrieval_confidence_threshold: float = 0.65
