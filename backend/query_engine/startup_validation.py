@@ -12,6 +12,7 @@ from .embedding_model import (
     get_embedding_model,
     initialize_embedding_model,
 )
+from .reranker_model import initialize_reranker_model
 
 LOGGER = get_logger(__name__)
 
@@ -84,3 +85,13 @@ def validate_query_engine_startup(config: QueryEngineConfig) -> None:
         config.reranker_batch_size,
         config.reranker_embed_filter_top_k,
     )
+
+    # Warm up reranker at startup so the first request does not trigger
+    # a slow lazy-load that times out the Next.js proxy (ECONNRESET).
+    try:
+        LOGGER.info("[STARTUP_VALIDATION] Pre-loading reranker model: %s", config.reranker_model_name)
+        initialize_reranker_model(config.reranker_model_name)
+        LOGGER.info("[STARTUP_VALIDATION] ✓ Reranker model pre-loaded successfully")
+    except Exception as exc:
+        # Log but don't crash startup — reranking will fail gracefully at request time
+        LOGGER.warning("[STARTUP_VALIDATION] Reranker pre-load failed (will retry on first request): %s", exc)
