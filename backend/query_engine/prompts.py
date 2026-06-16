@@ -85,16 +85,33 @@ GROUND_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
 )
 
 DIRECT_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
-    "You are GitaWise, a Bhagavad Gita mentor. Retrieved verses are unavailable or too weak.\n"
+    "You are GitaWise, a Bhagavad Gita mentor. Retrieved verses are unavailable for this query.\n"
     "{gita_mentor_guide}\n"
     "{user_style_priority}\n"
     "LENGTH: {word_count_instruction}\n"
     "Route: {route} | Note: {fallback_note}\n"
-    "Draw on known Gita concepts such as karma yoga, svadharma, nishkama karma, steadiness, and self-mastery, "
-    "but do not cite a specific chapter.verse unless it is available in context. "
-    "Still follow the mentor method: tension -> teaching -> concrete step.\n\n"
+    "Draw on known Gita concepts such as karma yoga, svadharma, nishkama karma, steadiness, and self-mastery.\n"
+    "Do NOT cite a specific chapter.verse unless it is available in context.\n"
+    "Follow the mentor method: acknowledge tension → teaching → concrete step.\n\n"
     "{conversation_context}"
     "Query: {user_query}"
+)
+
+CONVERSATION_HISTORY_RESPONSE_PROMPT = ChatPromptTemplate.from_template(
+    "You are GitaWise, a Bhagavad Gita mentor continuing a conversation with a user.\n"
+    "{gita_mentor_guide}\n"
+    "{user_style_priority}\n"
+    "LENGTH: {word_count_instruction}\n\n"
+    "The conversation history below is your PRIMARY source of context. "
+    "The user's new message is a follow-up or continuation within the SAME topic — do NOT start fresh.\n"
+    "- Build on what has already been said; don't repeat the same points.\n"
+    "- Reference the Gita teachings already discussed if they are relevant.\n"
+    "- Provide NEW insight, a deeper angle, or a concrete next step the user hasn't heard yet.\n"
+    "- If prior answers already cited specific verses, you may reference them by chapter.verse.\n"
+    "- Do NOT fabricate verse citations not present in the prior discussion.\n\n"
+    "FORMAT: Write in flowing natural paragraphs. End with one concrete action.\n\n"
+    "{conversation_context}"
+    "User's follow-up: {user_query}"
 )
 
 TOPIC_DECISION_PROMPT = ChatPromptTemplate.from_template(
@@ -213,20 +230,27 @@ def _sanitize_conversation_content(content: str) -> str:
 
 def _build_conversation_context(
     conversation_history: list[dict[str, str]] | None,
+    max_messages: int = 10,
 ) -> str:
     """Build a compact conversation summary for continuity without stale style leakage."""
     if not conversation_history:
         return ""
 
-    context_lines = ["Prior context:"]
-    for turn in conversation_history[-4:]:
+    valid_turns = []
+    for turn in conversation_history:
         role = turn.get("role", "unknown").upper()
         content = _sanitize_conversation_content(turn.get("content", "").strip())
-        if content:
-            context_lines.append(f"{role}: {content[:150]}")
+        if content and role in {"USER", "ASSISTANT"}:
+            valid_turns.append((role, content))
 
-    if len(context_lines) == 1:
+    recent = valid_turns[-max_messages:]
+    if not recent:
         return ""
+
+    context_lines = ["Prior conversation:"]
+    for role, content in recent:
+        context_lines.append(f"{role}: {content[:300]}")
+
     return "\n".join(context_lines) + "\n\n"
 
 
@@ -271,13 +295,28 @@ def render_direct_response_prompt(
     route: str,
     fallback_note: str,
     conversation_history: list[dict[str, str]] | None = None,
+    max_messages: int = 10,
 ) -> str:
     """Render direct response prompt with optional conversation context."""
     return DIRECT_RESPONSE_PROMPT.format_messages(
         user_query=user_query,
         route=route,
         fallback_note=fallback_note,
-        conversation_context=_build_conversation_context(conversation_history),
+        conversation_context=_build_conversation_context(conversation_history, max_messages=max_messages),
+        word_count_instruction=_render_word_count_instruction(user_query),
+        user_style_priority=USER_STYLE_PRIORITY,
+        gita_mentor_guide=GITA_MENTOR_GUIDE,
+    )[0].content
+
+
+def render_conversation_history_response_prompt(
+    user_query: str,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> str:
+    """Render the no-topic-shift continuation prompt backed by ≤5 prior messages."""
+    return CONVERSATION_HISTORY_RESPONSE_PROMPT.format_messages(
+        user_query=user_query,
+        conversation_context=_build_conversation_context(conversation_history, max_messages=5),
         word_count_instruction=_render_word_count_instruction(user_query),
         user_style_priority=USER_STYLE_PRIORITY,
         gita_mentor_guide=GITA_MENTOR_GUIDE,

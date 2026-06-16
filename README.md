@@ -27,7 +27,7 @@ matches, and generate a grounded answer with citations.
 - Backend: Python, FastAPI, Pydantic, Uvicorn
 - Retrieval: Qdrant, sentence-transformers, BGE embedding/reranker models
 - LLM providers: Groq and Sarvam configuration hooks
-- Cache: in-memory cache with optional Supabase persistence
+- Cache: in-memory LRU cache with TTL and session-aware conversational memory
 - Frontend: Next.js, React, TypeScript, Tailwind CSS
 - Tooling: notebooks for data preparation and scripts for vector generation
 
@@ -59,10 +59,6 @@ QDRANT_API_KEY=
 QDRANT_ENDPOINT=
 GROQ_API_KEY=
 SARVAM_API_KEY=
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_KEY=
-SUPABASE_CACHE_TABLE=cache_entries
 ```
 
 See `CONFIGURATION.md` for a deeper configuration walkthrough.
@@ -208,10 +204,9 @@ preserve context across a user's chat session.
 | --- | --- |
 | `backend/cache/__init__.py` | Public exports for cache manager, cache keys, session cache, conversation memory, and semantic cache. |
 | `backend/cache/cache_keys.py` | Standardized key builders for cache entries and session state. |
-| `backend/cache/cache_manager.py` | Multi-layer cache manager with in-memory storage and optional Supabase backing. |
+| `backend/cache/cache_manager.py` | In-memory LRU cache manager with TTL support and hit tracking. |
 | `backend/cache/semantic_cache.py` | Semantic response cache utilities for similar query reuse. |
 | `backend/cache/session_cache.py` | Stores and retrieves session conversation turns and session memory. |
-| `backend/cache/supabase_cache_schema.sql` | SQL schema for the optional Supabase cache table. |
 | `backend/cache/__pycache__/` | Python runtime cache. Ignored by git. |
 
 ### `backend/gita_vector_store/`

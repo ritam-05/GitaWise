@@ -63,10 +63,25 @@ export function ChatPageClient() {
         return;
       }
 
-      const errorMessage =
-        error instanceof Error
-          ? `Backend connection issue: ${error.message}`
-          : "Backend connection issue.";
+      let errorMessage = "Backend connection issue.";
+      if (error instanceof Error) {
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed && typeof parsed === "object" && parsed.detail) {
+            if (Array.isArray(parsed.detail)) {
+              errorMessage = parsed.detail
+                .map((d: any) => d.msg || JSON.stringify(d))
+                .join(" ");
+            } else {
+              errorMessage = String(parsed.detail);
+            }
+          } else {
+            errorMessage = `Backend connection issue: ${error.message}`;
+          }
+        } catch {
+          errorMessage = `Backend connection issue: ${error.message}`;
+        }
+      }
 
       setMessages((prev) => [
         ...prev,

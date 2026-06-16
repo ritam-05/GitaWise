@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import uuid
+import os
 
 # Add parent directory to path for config import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from config import SUPABASE_CACHE_TABLE, SUPABASE_SERVICE_KEY, SUPABASE_URL
 
 # Configure logging FIRST before any other code
 logging.basicConfig(
@@ -21,6 +19,8 @@ logger = logging.getLogger(__name__)
 logger.info("[BOOT] ========== GitaWise Backend Starting ==========")
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -49,18 +49,18 @@ class SessionMiddleware(BaseHTTPMiddleware):
         """Add or retrieve session_id."""
         # Try to get session_id from header
         session_id = request.headers.get("X-Session-ID")
-        
+
         # Fall back to query parameter
         if not session_id:
             session_id = request.query_params.get("session_id")
-        
+
         # Generate new one if not provided
         if not session_id:
             session_id = str(uuid.uuid4())
-        
+
         # Store in request state
         request.state.session_id = session_id
-        
+
         response = await call_next(request)
         # Return session_id in response header
         response.headers["X-Session-ID"] = session_id
@@ -89,12 +89,41 @@ app.include_router(health_router)
 app.include_router(query_engine_router)
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for error in exc.errors():
+        loc = error.get("loc")
+        field = loc[-1] if loc else "field"
+        err_type = error.get("type")
+        ctx = error.get("ctx", {})
+        
+        if err_type == "string_too_short" and field == "query":
+            min_length = ctx.get("min_length", 3)
+            msg = f"The query should be of at least {min_length} characters."
+        else:
+            msg = error.get("msg")
+            
+        errors.append({
+            "loc": loc,
+            "msg": msg,
+            "type": err_type,
+            "ctx": ctx
+        })
+        
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors}
+    )
+
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     """Initialize resources at app startup.
-    
+
     - Validates embedding model and Qdrant collection compatibility
-    - Initializes global cache if available
+    - Initializes global in-memory cache
     """
     logger.info("=" * 60)
     logger.info("[STARTUP] GitaWise Backend Startup Event")
@@ -102,16 +131,13 @@ async def startup_event() -> None:
 
     config = load_query_engine_config()
     validate_query_engine_startup(config)
-    
-    # Initialize global cache
+
+    # Initialize global in-memory cache
     if CACHE_AVAILABLE:
         try:
             cache_manager = CacheManager(
                 max_memory_items=1000,
                 default_ttl_seconds=3600,
-                supabase_url=SUPABASE_URL,
-                supabase_key=SUPABASE_SERVICE_KEY,
-                supabase_table=SUPABASE_CACHE_TABLE,
             )
             app.state.cache_manager = cache_manager
             logger.info("[STARTUP] ✓ Global cache initialized (session TTL=1h)")
@@ -121,7 +147,7 @@ async def startup_event() -> None:
     else:
         app.state.cache_manager = None
         logger.warning("[STARTUP] Cache not available")
-    
+
     logger.info("[STARTUP] ✓ Embedding/Qdrant validation completed")
     logger.info("[STARTUP] ✓ Session-aware routing enabled")
     logger.info("[STARTUP] ✓ Backend ready for requests at http://127.0.0.1:8000")
@@ -132,4 +158,3 @@ async def startup_event() -> None:
 async def shutdown_event() -> None:
     """Clean up resources during shutdown."""
     logger.info("GitaWise Backend shutting down...")
-

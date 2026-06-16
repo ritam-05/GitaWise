@@ -4,7 +4,6 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from .continuation_detector import ContinuationDetector
 from .dialogue_state import DialogueState
 from .prompts import render_topic_shift_detection_prompt
 
@@ -12,9 +11,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 class StateTransitionManager:
-    """Detects continuation, topic shifts, and emotional escalations.
+    """Detects continuation vs topic shifts using the LLM as the sole judge.
 
-    Lightweight, rule-based implementation with simple semantic checks.
+    The only hard rule is emotional-escalation detection (safety-critical).
+    Everything else is decided by the LLM topic-shift detector.
     """
 
     EMOTION_ESCALATION_KEYPHRASES = [
@@ -31,16 +31,8 @@ class StateTransitionManager:
         "i am done",
     ]
 
-    TOPIC_SHIFT_PATTERNS = [
-        r"tell me about (.+)",
-        r"what does the gita say about (.+)",
-        r"what about (.+)",
-        r"tell me (.+)",
-    ]
-
     def __init__(self, groq_client: object | None = None, min_words_for_continuation: int = 4) -> None:
         self.groq_client = groq_client
-        self.detector = ContinuationDetector(min_words=min_words_for_continuation)
 
     def classify_transition(
         self,
@@ -48,89 +40,81 @@ class StateTransitionManager:
         dialogue_state: DialogueState | None = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
-        """Return a classification dict with keys: transition_type, confidence, details."""
+        """Return a classification dict with keys: transition_type, confidence, reason.
+
+        Decision hierarchy:
+        1. Emotional escalation (hard rule — safety-critical).
+        2. LLM topic-shift detector (sole judge for continuation vs topic shift).
+        3. If LLM unavailable or no active topic → default to topic_shift (safe fallback).
+        """
         q = (user_query or "").strip().lower()
 
-        # 1. Check for emotional escalation phrases (highest priority)
+        # 1. Emotional escalation — always overrides LLM (safety)
         for phrase in self.EMOTION_ESCALATION_KEYPHRASES:
             if phrase in q:
-                return {"transition_type": "emotion_shift", "confidence": 0.95, "reason": f"matched_phrase:{phrase}"}
+                return {
+                    "transition_type": "emotion_shift",
+                    "confidence": 0.97,
+                    "reason": f"emotion_escalation_phrase:{phrase}",
+                }
 
-        llm_decision = self.detect_topic_shift_with_llm(user_query, dialogue_state)
+        # 2. LLM is the sole topic-shift judge
+        llm_decision = self.detect_topic_shift_with_llm(
+            user_query, dialogue_state, conversation_history
+        )
         if llm_decision:
             return llm_decision
 
-        # 2. Check for explicit topic shift patterns
-        for pat in self.TOPIC_SHIFT_PATTERNS:
-            m = re.search(pat, q)
-            if m:
-                topic = m.group(1).strip()
-                if self._has_topic_overlap(topic, dialogue_state):
-                    return {
-                        "transition_type": "continuation",
-                        "confidence": 0.82,
-                        "reason": f"pattern_overlap:{pat}",
-                        "topic": getattr(dialogue_state, "active_topic", None),
-                    }
-                return {"transition_type": "topic_shift", "confidence": 0.9, "reason": f"pattern:{pat}", "topic": topic}
-
-        # 3. Continuation detection
-        if self.detector.is_continuation(user_query, conversation_history):
-            return {"transition_type": "continuation", "confidence": 0.8, "reason": "heuristic_continuation"}
-
-        # 4. Heuristic semantic shift: check token overlap with prior topic
-        if dialogue_state and dialogue_state.active_topic and q:
-            # simple token overlap ratio (Jaccard-like)
-            prior_tokens = set(re.findall(r"\b[\w']+\b", (dialogue_state.active_topic or "").lower()))
-            curr_tokens = set(re.findall(r"\b[\w']+\b", q))
-            if prior_tokens and curr_tokens:
-                inter = prior_tokens.intersection(curr_tokens)
-                union = prior_tokens.union(curr_tokens)
-                score = len(inter) / max(1, len(union))
-                if score >= 0.25:
-                    return {"transition_type": "continuation", "confidence": 0.7, "reason": "token_overlap", "overlap": score}
-                if score < 0.2:
-                    # low overlap suggests possible topic shift
-                    return {"transition_type": "topic_shift", "confidence": 0.6, "reason": "low_overlap", "overlap": score}
-
-        # Default: treat as topic shift with low confidence if query is substantive
-        tokens = re.findall(r"\b[\w']+\b", q)
-        if len(tokens) >= 3:
-            return {"transition_type": "topic_shift", "confidence": 0.5, "reason": "default_substantive"}
-
-        # Fallback: continuation
-        return {"transition_type": "continuation", "confidence": 0.4, "reason": "fallback"}
+        # 3. Safe fallback: if no active topic or LLM unavailable, treat as topic shift
+        # (fresh retrieval is always safer than answering without context)
+        return {
+            "transition_type": "topic_shift",
+            "confidence": 0.5,
+            "reason": "no_active_topic_or_llm_unavailable",
+        }
 
     def detect_topic_shift_with_llm(
         self,
         user_query: str,
         dialogue_state: DialogueState | None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any] | None:
-        """Use the LLM as the only primary judge for continuation vs topic shift."""
+        """Use the LLM as the sole judge for continuation vs topic shift.
+
+        Only requires an active_topic — cached verses are optional context.
+        """
         if not self.groq_client or not dialogue_state:
             return None
 
         current_topic = (dialogue_state.active_topic or "").strip()
-        cached_context = dialogue_state.last_retrieved_verses or []
-        if not current_topic or not cached_context:
+        if not current_topic:
             return None
+
+        # Build context summary from cached verses OR conversation history
+        cached_context = dialogue_state.last_retrieved_verses or []
+        if cached_context:
+            context_summary = self._context_summary(cached_context)
+        elif conversation_history:
+            context_summary = self._conversation_summary(conversation_history)
+        else:
+            context_summary = "No prior context available."
 
         try:
             prompt = render_topic_shift_detection_prompt(
                 current_topic=current_topic,
-                context_summary=self._context_summary(cached_context),
+                context_summary=context_summary,
                 user_message=user_query,
             )
             payload = self.groq_client.invoke_json(prompt)
             decision = str(payload.get("decision", "")).strip().upper()
             detected_topic = str(payload.get("detected_topic", "")).strip()
-            reason = str(payload.get("reason", "")).strip() or "topic_shift_detector"
+            reason = str(payload.get("reason", "")).strip() or "llm_decision"
 
             if decision == "CONTINUATION":
                 return {
                     "transition_type": "continuation",
                     "confidence": 0.9,
-                    "reason": f"llm_topic_shift_detector:{reason}",
+                    "reason": f"llm:{reason}",
                     "topic": current_topic,
                     "detected_topic": detected_topic or current_topic,
                 }
@@ -138,12 +122,16 @@ class StateTransitionManager:
                 return {
                     "transition_type": "topic_shift",
                     "confidence": 0.9,
-                    "reason": f"llm_topic_shift_detector:{reason}",
+                    "reason": f"llm:{reason}",
                     "topic": detected_topic or user_query,
                     "detected_topic": detected_topic or user_query,
                 }
+
+            LOGGER.warning(
+                "[STM] LLM returned unexpected decision=%r; falling back to topic_shift", decision
+            )
         except Exception as exc:
-            LOGGER.warning("LLM topic-shift detection failed; falling back to heuristics: %s", exc)
+            LOGGER.warning("[STM] LLM topic-shift detection failed: %s", exc)
 
         return None
 
@@ -175,48 +163,21 @@ class StateTransitionManager:
                 )
                 topics = getattr(item, "topics", []) or []
 
-            topic_text = ", ".join(str(topic) for topic in topics[:4]) if isinstance(topics, list) else str(topics)
+            topic_text = ", ".join(str(t) for t in topics[:4]) if isinstance(topics, list) else str(topics)
             summary = f"{label}: {str(text).strip()[:220]}"
             if topic_text:
-                summary = f"{summary} Topics: {topic_text}"
+                summary = f"{summary} | Topics: {topic_text}"
             summaries.append(summary)
 
         return "\n".join(summaries) if summaries else "No cached context available."
 
     @staticmethod
-    def _has_topic_overlap(topic: str, dialogue_state: DialogueState | None) -> bool:
-        if not dialogue_state or not dialogue_state.active_topic:
-            return False
-
-        ignored = {
-            "is",
-            "are",
-            "was",
-            "were",
-            "what",
-            "who",
-            "about",
-            "tell",
-            "me",
-            "the",
-            "a",
-            "an",
-            "gita",
-            "say",
-            "says",
-            "does",
-            "do",
-            "explain",
-            "define",
-        }
-        topic_tokens = {
-            token
-            for token in re.findall(r"\b[\w']+\b", topic.lower())
-            if token not in ignored and len(token) > 2
-        }
-        active_tokens = {
-            token
-            for token in re.findall(r"\b[\w']+\b", dialogue_state.active_topic.lower())
-            if token not in ignored and len(token) > 2
-        }
-        return bool(topic_tokens.intersection(active_tokens))
+    def _conversation_summary(conversation_history: List[Dict[str, str]]) -> str:
+        """Build a compact summary from recent conversation turns for the LLM prompt."""
+        lines: list[str] = []
+        for turn in conversation_history[-6:]:
+            role = turn.get("role", "").upper()
+            content = (turn.get("content") or "").strip()[:200]
+            if content and role in {"USER", "ASSISTANT"}:
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines) if lines else "No conversation history available."

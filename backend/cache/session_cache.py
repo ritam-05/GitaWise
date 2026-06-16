@@ -209,8 +209,8 @@ class SessionCache:
         cleaned_count = 0
         
         try:
-            # Note: This is a best-effort cleanup for in-memory and Supabase-backed caches.
-            # For in-memory cache, we scan all keys; for Supabase, expiry is checked on read.
+            # Note: This is a best-effort cleanup for in-memory caches.
+            # For in-memory cache, we scan all keys; expiry is checked on read.
             # For production, consider implementing explicit session tracking.
             logger.info(
                 "[SESSION_CLEANUP] Starting cleanup (ttl=%ds, threshold_time=%s)",

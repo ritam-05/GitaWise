@@ -234,6 +234,7 @@ class DirectResponseGenerator:
         warnings: list[str] | None = None,
         fallback_note: str = "No fallback note.",
         conversation_history: list[dict[str, str]] | None = None,
+        max_messages: int = 10,
     ) -> AdaptiveAnswer:
         """
         Generate direct non-RAG response with optional conversation history using LangChain.
@@ -244,12 +245,14 @@ class DirectResponseGenerator:
             warnings: Accumulated warnings
             fallback_note: Route-specific fallback instruction
             conversation_history: Previous turns for context chaining
+            max_messages: Maximum messages to include in conversation history context
         """
         prompt = render_direct_response_prompt(
             user_query=user_query,
             route=route,
             fallback_note=fallback_note,
             conversation_history=conversation_history,
+            max_messages=max_messages,
         )
         
         # Use LangChain ChatGroq to invoke LLM

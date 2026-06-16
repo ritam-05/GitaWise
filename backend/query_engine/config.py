@@ -24,12 +24,6 @@ class QueryEngineConfig(BaseModel):
     sarvam_api_key: str = Field(default_factory=lambda: os.getenv("SARVAM_API_KEY", ""))
     qdrant_api_key: str = Field(default_factory=lambda: os.getenv("QDRANT_API_KEY", ""))
     qdrant_endpoint: str = Field(default_factory=lambda: os.getenv("QDRANT_ENDPOINT", ""))
-    supabase_url: str = Field(default_factory=lambda: os.getenv("SUPABASE_URL", ""))
-    supabase_anon_key: str = Field(default_factory=lambda: os.getenv("SUPABASE_ANON_KEY", ""))
-    supabase_service_key: str = Field(default_factory=lambda: os.getenv("SUPABASE_SERVICE_KEY", ""))
-    supabase_cache_table: str = Field(
-        default_factory=lambda: os.getenv("SUPABASE_CACHE_TABLE", "cache_entries")
-    )
     groq_model_name: str = "llama-3.3-70b-versatile"
     # OPTIMIZED: Smaller model for extraction/classification tasks (analyzer, router)
     # This reduces token usage and cost while maintaining quality for structured extraction

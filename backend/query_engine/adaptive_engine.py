@@ -14,7 +14,7 @@ from .config import QueryEngineConfig, get_logger, load_query_engine_config
 logger.info("[ADAPTIVE] Config imported")
 from .engine import GitaQueryEngine
 logger.info("[ADAPTIVE] Engine imported")
-from .generator import DirectResponseGenerator
+from .generator import DirectResponseGenerator, GroundedResponseGenerator
 logger.info("[ADAPTIVE] Generator imported")
 from .lightweight_router import LightweightRouter
 from .models import AdaptiveAnswer, EmotionResult, Problem, RetrievalQuery, RetrievedVerse
@@ -26,6 +26,7 @@ from .dialogue_state import DialogueState
 from .continuation_detector import ContinuationDetector
 from .contextual_rewriter import ContextualRewriter
 from .state_transition_manager import StateTransitionManager
+from .prompts import render_conversation_history_response_prompt
 logger.info("[ADAPTIVE] Dialogue helpers imported")
 
 # Import cache (optional)
@@ -42,7 +43,6 @@ except ImportError:
 
 class AdaptiveGitaEngine:
     """Hybrid orchestration layer that routes queries before any RAG work begins."""
-
     POSITIVE_FEEDBACK_PHRASES = {
         "good",
         "great",
@@ -278,26 +278,15 @@ class AdaptiveGitaEngine:
                 session.last_topic = corrected_topic
                 conversation_history = []
                 classification = {"transition_type": "topic_shift", "confidence": 0.99, "reason": "correction_preprocessor", "topic": corrected_topic}
-            elif self._has_topic_router_context(dialogue_state) and self.transition_manager:
-                classification = self.transition_manager.classify_transition(user_query, dialogue_state, conversation_history)
-            elif intent == "TOPIC_SHIFT":
-                dialogue_state.active_topic = user_query
-                session.last_topic = user_query
-                conversation_history = []
-                classification = {"transition_type": "topic_shift", "confidence": 0.98, "reason": "intent_preprocessor", "topic": user_query}
             elif intent == "CONTINUATION":
-                classification = {"transition_type": "continuation", "confidence": 0.99, "reason": "intent_preprocessor"}
-            elif intent == "CLARIFICATION":
-                classification = {"transition_type": "continuation", "confidence": 0.95, "reason": "clarification_preprocessor"}
-            elif intent == "RESTATEMENT":
-                restated_query = self._find_restatement_target(user_query, conversation_history) or user_query
-                resolved_query = restated_query
-                classification = {"transition_type": "topic_shift", "confidence": 0.97, "reason": "restatement_preprocessor", "topic": restated_query}
+                # Only explicit continuation words (e.g. 'more', 'elaborate') bypass LLM
+                classification = {"transition_type": "continuation", "confidence": 0.99, "reason": "explicit_continuation_intent"}
             elif self.transition_manager:
+                # LLM is the sole judge for everything else
                 classification = self.transition_manager.classify_transition(user_query, dialogue_state, conversation_history)
             else:
-                # fallback to previous continuation detector
-                classification = {"transition_type": "continuation"} if (self.continuation_detector and self.continuation_detector.is_continuation(user_query, conversation_history)) else {"transition_type": "topic_shift"}
+                # No LLM available — safe fallback to topic_shift
+                classification = {"transition_type": "topic_shift", "confidence": 0.5, "reason": "no_llm_fallback"}
 
             ttype = classification.get("transition_type")
             # record transition type in dialogue state for downstream use
@@ -381,42 +370,71 @@ class AdaptiveGitaEngine:
             route = route_result.route
             self.logger.info("[ADAPTIVE_SESSION] Route: %s (resolved_query='%s')", route, resolved_query)
 
-        # Generate answer with conversation context.
-        # Same-topic continuations reuse the topic's original retrieved verses.
-        # Topic shifts are the only path that should retrieve fresh verses.
+        # ---------------------------------------------------------------------------
+        # Pipeline decision:
+        #   - NO TOPIC SHIFT (continuation / clarification) → answer from the
+        #     context of the previous ≤10 messages, NO new Qdrant retrieval.
+        #   - TOPIC SHIFT (new topic) → fresh Qdrant retrieval → grounded answer.
+        # ---------------------------------------------------------------------------
         ttype = classification.get("transition_type") if 'classification' in locals() else "topic_shift"
-        should_reuse_cache = is_continuation and ttype == "continuation"
-        
-        if should_reuse_cache and dialogue_state.last_retrieved_verses:
-            # CONTINUATION: Reuse cached retrieval from prior turn on same topic
-            self.logger.info("[ADAPTIVE_SESSION] CONTINUATION: Reusing cached retrieval for topic=%s", dialogue_state.active_topic)
+        is_no_topic_shift = ttype in {"continuation", "emotion_shift"} or is_continuation
+
+        if is_no_topic_shift:
+            # NO TOPIC SHIFT: answer from conversation history (≤10 msgs), skip Qdrant.
+            # Use CONVERSATION_HISTORY_RESPONSE_PROMPT so the LLM builds on prior context
+            # instead of falling back to generic Gita concepts.
+            self.logger.info(
+                "[ADAPTIVE_SESSION] NO_TOPIC_SHIFT (%s): Answering from conversation history, skipping Qdrant",
+                ttype,
+            )
             problems = [Problem(problem=dialogue_state.active_topic or resolved_query.strip())]
             emotions = [EmotionResult(problem=dialogue_state.active_topic or resolved_query.strip(), emotion="none")]
-            cached_contexts = self._deserialize_cached_contexts(dialogue_state.last_retrieved_verses)
 
-            if cached_contexts:
-                answer = self._run_grounded_route_with_cached_context(
+            # Build answer via LLM with conversation-history-backed prompt
+            try:
+                from langchain_groq import ChatGroq
+                from langchain_core.messages import HumanMessage, SystemMessage
+                prompt_text = render_conversation_history_response_prompt(
                     user_query=resolved_query,
-                    route=route,
-                    problems=problems,
-                    emotions=emotions,
-                    cached_contexts=cached_contexts,
                     conversation_history=conversation_history,
                 )
-            else:
-                self.logger.warning("[ADAPTIVE_SESSION] Cached topic contexts were empty/unusable; running fresh retrieval")
-                problems, emotions = self.query_engine.analyze_query(resolved_query)
-                retrieval_queries = self.query_engine.build_queries(emotions)
-                answer = self._run_grounded_route(
+                llm = ChatGroq(
+                    api_key=self.query_engine.config.groq_api_key,
+                    model_name=self.query_engine.config.groq_model_name,
+                    temperature=self.query_engine.config.groq_temperature,
+                )
+                messages = [
+                    SystemMessage(content="You are GitaWise, a wise and empathetic Bhagavad Gita mentor."),
+                    HumanMessage(content=prompt_text),
+                ]
+                raw_answer = (llm.invoke(messages).content or "").strip()
+                # Sanitize
+                try:
+                    raw_answer = GroundedResponseGenerator(config=self.query_engine.config)._sanitize_answer(raw_answer)
+                except Exception:
+                    pass
+                answer = AdaptiveAnswer(
+                    original_query=resolved_query,
+                    route=route or "philosophical_guidance",
+                    answer=raw_answer,
+                    cited_verses=[],
+                    contexts=[],
+                    warnings=[],
+                    used_rag=False,
+                )
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Conversation-history LLM call failed: %s; falling back to direct generator", exc)
+                answer = self.direct_generator.generate(
                     user_query=resolved_query,
-                    route=route,
-                    problems=problems,
-                    emotions=emotions,
-                    retrieval_queries=retrieval_queries,
+                    route=route or "philosophical_guidance",
+                    warnings=[],
+                    fallback_note="Answer from the conversation history above — no new retrieval needed.",
                     conversation_history=conversation_history,
-                    session_id=session_id,
+                    max_messages=5,
                 )
         elif route == "gita_rag":
+            # TOPIC SHIFT via gita_rag route: fresh retrieval
+            self.logger.info("[ADAPTIVE_SESSION] TOPIC_SHIFT (gita_rag): Running fresh Qdrant retrieval")
             problems = [Problem(problem=resolved_query.strip())]
             emotions = [EmotionResult(problem=resolved_query.strip(), emotion="none")]
             retrieval_queries = [
@@ -436,9 +454,8 @@ class AdaptiveGitaEngine:
                 session_id=session_id,
             )
         else:
-            # TOPIC_SHIFT or fresh query: Do full analysis + retrieval
-            if ttype == "topic_shift":
-                self.logger.info("[ADAPTIVE_SESSION] TOPIC_SHIFT: Running fresh analysis and retrieval for new topic")
+            # TOPIC SHIFT: full analysis + fresh Qdrant retrieval
+            self.logger.info("[ADAPTIVE_SESSION] TOPIC_SHIFT: Running fresh analysis and Qdrant retrieval for new topic")
             problems, emotions = self.query_engine.analyze_query(resolved_query)
             retrieval_queries = self.query_engine.build_queries(emotions)
             answer = self._run_grounded_route(
@@ -645,10 +662,8 @@ class AdaptiveGitaEngine:
 
     @staticmethod
     def _has_topic_router_context(dialogue_state: DialogueState) -> bool:
-        return bool(
-            getattr(dialogue_state, "active_topic", None)
-            and getattr(dialogue_state, "last_retrieved_verses", None)
-        )
+        """Return True when we have enough context for the LLM detector to make a decision."""
+        return bool(getattr(dialogue_state, "active_topic", None))
 
     def _topic_from_query(self, text: str) -> str:
         """Extract a compact topic label from the current user/resolved query."""
@@ -930,7 +945,7 @@ class AdaptiveGitaEngine:
         retrieval_queries: list[RetrievalQuery],
         session_id: str | None,
     ) -> list[RetrievedVerse]:
-        """Retrieve verses, using the Supabase-backed cache when a session is available."""
+        """Retrieve verses from Qdrant, using the in-memory session cache when available."""
         if not retrieval_queries:
             return []
 
