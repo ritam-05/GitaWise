@@ -1,8 +1,8 @@
 ---
 title: GitaWise
 emoji: 🕉️
-colorFrom: orange
-colorTo: yellow
+colorFrom: yellow
+colorTo: pink
 sdk: docker
 pinned: false
 ---
