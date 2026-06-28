@@ -6,7 +6,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="light"
+      defaultTheme="dark"
+      forcedTheme="dark"
       enableSystem={false}
       storageKey="gitawise-theme-v5"
       disableTransitionOnChange={false}

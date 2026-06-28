@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { House, Menu, UserRound } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { DisclaimerModal } from "@/components/disclaimer-modal";
 import { TodaysPhilosophyModal } from "@/components/todays-philosophy-modal";
 import { clearChatSession, resetStoredSessionId } from "@/lib/api";
@@ -77,7 +76,6 @@ export function TopNav() {
           )}
         </div>
         <div className="flex items-center gap-2">
-        <ThemeToggle />
         <div ref={profileRef} className="relative">
           <button
             type="button"
