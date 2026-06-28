@@ -1,3 +1,12 @@
+---
+title: GitaWise
+emoji: 🕉️
+colorFrom: orange
+colorTo: yellow
+sdk: docker
+pinned: false
+---
+
 # GitaWise
 
 GitaWise is a Bhagavad Gita retrieval and assistant application. It combines a
