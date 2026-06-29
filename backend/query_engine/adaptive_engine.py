@@ -155,6 +155,13 @@ class AdaptiveGitaEngine:
         except Exception:
             self.transition_manager = None
 
+        try:
+            from .gemini_supervisor import GeminiSupervisor
+            self.gemini_supervisor = GeminiSupervisor()
+        except Exception as exc:
+            self.logger.warning("Failed to initialize GeminiSupervisor: %s", exc)
+            self.gemini_supervisor = None
+
     def answer(self, user_query: str) -> AdaptiveAnswer:
         if not user_query.strip():
             raise ValueError("user_query must not be empty.")
@@ -238,6 +245,88 @@ class AdaptiveGitaEngine:
         intent = self._detect_intent(user_query, intent_history)
         self.logger.info("[ADAPTIVE_SESSION] Intent detected: %s", intent)
 
+        # Call Gemini Supervisor first
+        supervisor_result = None
+        if getattr(self, "gemini_supervisor", None):
+            try:
+                dialogue_state_temp = DialogueState.from_session(session)
+                supervisor_result = self.gemini_supervisor.supervise(
+                    user_query=user_query,
+                    dialogue_state=dialogue_state_temp,
+                    conversation_history=conversation_history,
+                )
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Supervisor call failed: %s", exc)
+
+        # Handle supervisor directed outputs
+        if supervisor_result and supervisor_result["classification"] in {"FEEDBACK", "GREETING", "OTHER"}:
+            instruction = supervisor_result["instruction_for_groq"] or "Respond warmly and concisely."
+            self.logger.info(
+                "[ADAPTIVE_SESSION] Supervisor classified as %s. Directing Groq: '%s'",
+                supervisor_result["classification"],
+                instruction,
+            )
+            try:
+                from langchain_groq import ChatGroq
+                from langchain_core.messages import HumanMessage, SystemMessage
+                
+                history_prompt = ""
+                if conversation_history:
+                    history_prompt = "\n".join(
+                        f"{turn.get('role', 'unknown').upper()}: {turn.get('content', '')}"
+                        for turn in conversation_history[-6:]
+                        if turn.get("role") in {"user", "assistant"}
+                    )
+                
+                full_prompt = (
+                    f"You are GitaWise, a warm, empathetic Bhagavad Gita mentor.\n"
+                    f"Instructions for this turn:\n{instruction}\n\n"
+                    f"Conversation History:\n{history_prompt}\n\n"
+                    f"User: {user_query}\n\n"
+                    f"Assistant:"
+                )
+                
+                llm = ChatGroq(
+                    api_key=self.query_engine.config.groq_api_key,
+                    model_name=self.query_engine.config.groq_model_name,
+                    temperature=self.query_engine.config.groq_temperature,
+                )
+                messages = [
+                    SystemMessage(content="You are GitaWise, a wise and empathetic Bhagavad Gita mentor."),
+                    HumanMessage(content=full_prompt),
+                ]
+                raw_answer = (llm.invoke(messages).content or "").strip()
+                try:
+                    from .generator import GroundedResponseGenerator
+                    raw_answer = GroundedResponseGenerator(config=self.query_engine.config)._sanitize_answer(raw_answer)
+                except Exception:
+                    pass
+                
+                answer = AdaptiveAnswer(
+                    original_query=user_query,
+                    route="philosophical_guidance",
+                    answer=raw_answer,
+                    cited_verses=[],
+                    contexts=[],
+                    warnings=[],
+                    used_rag=False,
+                )
+                
+                self._track_conversation_turn(
+                    session=session,
+                    user_query=user_query,
+                    route="philosophical_guidance",
+                    problems=[],
+                    emotions=[],
+                    response=answer.answer,
+                    topic=getattr(session, "last_topic", None),
+                    intent=supervisor_result["classification"],
+                )
+                self.session_cache.save_session(session)
+                return answer
+            except Exception as exc:
+                self.logger.warning("[ADAPTIVE_SESSION] Failed to generate Groq response: %s. Falling back to default RAG flow.", exc)
+
         if intent in {"FEEDBACK_POSITIVE", "FEEDBACK_NEGATIVE"}:
             answer = AdaptiveAnswer(
                 original_query=user_query,
@@ -271,7 +360,22 @@ class AdaptiveGitaEngine:
 
         try:
             classification = None
-            if intent == "CORRECTION":
+            if supervisor_result and supervisor_result["classification"] == "CONTINUATION":
+                classification = {
+                    "transition_type": "continuation",
+                    "confidence": 0.95,
+                    "reason": "gemini_supervisor_decision",
+                    "topic": dialogue_state.active_topic,
+                }
+            elif supervisor_result and supervisor_result["classification"] == "TOPIC_SHIFT":
+                new_topic = supervisor_result.get("detected_topic") or user_query
+                classification = {
+                    "transition_type": "topic_shift",
+                    "confidence": 0.95,
+                    "reason": "gemini_supervisor_decision",
+                    "topic": new_topic,
+                }
+            elif intent == "CORRECTION":
                 corrected_topic = self._extract_correction_topic(user_query) or user_query
                 resolved_query = corrected_topic
                 dialogue_state.active_topic = corrected_topic
