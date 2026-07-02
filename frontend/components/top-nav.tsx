@@ -5,10 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { House, Menu, UserRound } from "lucide-react";
 import { DisclaimerModal } from "@/components/disclaimer-modal";
-import { TodaysPhilosophyModal } from "@/components/todays-philosophy-modal";
 import { clearChatSession, resetStoredSessionId } from "@/lib/api";
 
-const menuItems = ["Settings", "Today's Philosophy", "Disclaimer"];
+const menuItems = ["Settings", "Disclaimer"];
 
 export function TopNav() {
   const pathname = usePathname();
@@ -16,7 +15,6 @@ export function TopNav() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
-  const [isPhilosophyOpen, setIsPhilosophyOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -142,9 +140,6 @@ export function TopNav() {
                       if (item === "Disclaimer") {
                         setIsDisclaimerOpen(true);
                       }
-                      if (item === "Today's Philosophy") {
-                        setIsPhilosophyOpen(true);
-                      }
                       setIsMenuOpen(false);
                     }}
                     className="w-full rounded-xl px-3 py-2.5 text-left text-[16.5px] text-secondary transition-colors hover:bg-surface hover:text-foreground"
@@ -159,8 +154,6 @@ export function TopNav() {
       </div>
       </header>
       <DisclaimerModal isOpen={isDisclaimerOpen} onClose={() => setIsDisclaimerOpen(false)} />
-      {/* Lazy-load the Today's Philosophy modal to show daily verse */}
-      <TodaysPhilosophyModal isOpen={isPhilosophyOpen} onClose={() => setIsPhilosophyOpen(false)} />
 
     </>
   );

@@ -29,7 +29,7 @@ matches, and generate a grounded answer with citations.
   guidance, or full Gita RAG.
 - Preserves conversational context through session IDs and optional cache
   storage.
-- Provides a polished Next.js chat UI with citations and daily philosophy.
+- Provides a polished Next.js chat UI with citations.
 
 ## Tech Stack
 
@@ -123,7 +123,6 @@ The backend mounts health routes and query-engine routes:
 
 - `GET /` - health check with engine readiness.
 - `GET /health` - explicit readiness endpoint.
-- `GET /query-engine/today-philosophy` - deterministic daily verse summary.
 - `POST /query-engine/analyze` - inspect decomposition, emotion detection, and
   retrieval query generation.
 - `POST /query-engine/route` - see which route the adaptive engine chooses.
@@ -172,7 +171,7 @@ HTTP route modules exposed by FastAPI.
 | --- | --- |
 | `backend/routes/__init__.py` | Marks the routes directory as a package. |
 | `backend/routes/health.py` | Implements `/` and `/health` readiness endpoints. |
-| `backend/routes/query_engine.py` | Defines query-engine request/response models and endpoints for analysis, routing, answer generation, today's philosophy, and session clearing. |
+| `backend/routes/query_engine.py` | Defines query-engine request/response models and endpoints for analysis, routing, answer generation, and session clearing. |
 
 ### `backend/query_engine/`
 
@@ -305,7 +304,6 @@ Reusable React UI pieces.
 | `frontend/components/floating-chatbox.tsx` | Floating chat container variant. |
 | `frontend/components/floating-input.tsx` | Floating input variant for compact interactions. |
 | `frontend/components/prompt-suggestions.tsx` | Suggested starting prompts for users. |
-| `frontend/components/todays-philosophy-modal.tsx` | Modal for the daily philosophy endpoint. |
 | `frontend/components/disclaimer-modal.tsx` | Disclaimer modal for user-facing guidance. |
 | `frontend/components/theme-provider.tsx` | Theme context/provider integration. |
 | `frontend/components/theme-toggle.tsx` | Light/dark theme toggle control. |
