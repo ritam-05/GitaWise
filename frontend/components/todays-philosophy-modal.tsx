@@ -14,39 +14,57 @@ export function TodaysPhilosophyModal({ isOpen, onClose }: Props) {
   const [data, setData] = useState<null | {
     summary: string;
     shloka: string;
+    explanation: string;
     chapter: number | null;
     verse: number | null;
     citation: string;
+    expires_at: string;
   }>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     let mounted = true;
-    setLoading(true);
-    setError(null);
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const backendUrl = (process.env.BACKEND_URL || "http://127.0.0.1:8000") as string;
-    fetch(`${backendUrl}/query-engine/today-philosophy`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || "Failed to fetch today's philosophy");
-        }
-        return res.json();
-      })
-      .then((json) => {
-        if (!mounted) return;
-        setData(json);
-      })
-      .catch((err) => {
-        if (!mounted) return;
-        setError(String(err.message || err));
-      })
-      .finally(() => mounted && setLoading(false));
+    const loadPhilosophy = () => {
+      setLoading(true);
+      setError(null);
+
+      fetch(`${backendUrl}/query-engine/today-philosophy`)
+        .then(async (res) => {
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || "Failed to fetch today's philosophy");
+          }
+          return res.json();
+        })
+        .then((json) => {
+          if (!mounted) return;
+          setData(json);
+
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+          }
+          const expiresAt = new Date(json.expires_at).getTime();
+          const refreshIn = Math.max(expiresAt - Date.now(), 1000);
+          refreshTimer = setTimeout(loadPhilosophy, refreshIn);
+        })
+        .catch((err) => {
+          if (!mounted) return;
+          setError(String(err.message || err));
+        })
+        .finally(() => mounted && setLoading(false));
+    };
+
+    loadPhilosophy();
 
     return () => {
       mounted = false;
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
     };
   }, [isOpen]);
 
@@ -92,8 +110,10 @@ export function TodaysPhilosophyModal({ isOpen, onClose }: Props) {
                   {!loading && !error && data && (
                     <>
                       <div className="prose max-w-none text-foreground">
-                        <p>{data.summary || data.shloka}</p>
+                        <p>{data.shloka}</p>
                       </div>
+
+                      <p>{data.explanation || data.summary}</p>
 
                       <p className="mt-4 text-sm text-muted">
                         {data.citation}

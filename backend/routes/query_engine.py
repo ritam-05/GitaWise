@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from functools import lru_cache
 from typing import Optional
 
@@ -18,6 +19,67 @@ from backend.query_engine import AdaptiveGitaEngine, GitaQueryEngine
 logger.info("[ROUTES] ✓ Query engine modules imported")
 
 router = APIRouter(prefix="/query-engine", tags=["query-engine"])
+
+
+def _two_sentence_explanation(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    sentences = re.findall(r"[^.!?]+[.!?]", cleaned)
+    if len(sentences) >= 2:
+        return " ".join(sentence.strip() for sentence in sentences[:2])
+    return cleaned
+
+
+@lru_cache(maxsize=8)
+def _generate_daily_philosophy_explanation(
+    date_key: str,
+    chapter: int | None,
+    verse: int | None,
+    shloka: str,
+    translation: str,
+    interpretation: str,
+    summary: str,
+) -> str:
+    import os
+
+    import requests
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    model = "gemini-3.1-flash-lite"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    reference = f"Bhagavad Gita {chapter}.{verse}" if chapter and verse else "the selected Bhagavad Gita verse"
+    prompt = f"""Explain what Krishna wanted to say in exactly two simple sentences.
+Use only the verse context below and do not add headings, bullets, citations, or Sanskrit transliteration.
+
+Reference: {reference}
+Shloka: {shloka}
+English meaning: {translation}
+Interpretation: {interpretation}
+Summary: {summary}
+Daily date key: {date_key}
+"""
+    response = requests.post(
+        url,
+        params={"key": api_key},
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 120,
+            },
+        },
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"Gemini API returned status code {response.status_code}: {response.text}")
+
+    data = response.json()
+    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    return _two_sentence_explanation(text)
+
 
 @router.get("/today-philosophy")
 def todays_philosophy() -> dict:
@@ -74,6 +136,18 @@ def todays_philosophy() -> dict:
         verse = safe_int(row.get("Verse", None))
         summary = str(row.get("Summary") or row.get("EngMeaning") or "").strip()
         shloka = str(row.get("Shloka") or "").strip()
+        translation = str(row.get("EngMeaning") or "").strip()
+        interpretation = str(row.get("Interpretation") or "").strip()
+        date_key = today_utc.isoformat()
+        explanation = _generate_daily_philosophy_explanation(
+            date_key,
+            chapter,
+            verse,
+            shloka,
+            translation,
+            interpretation,
+            summary,
+        )
 
         citation = f"Chapter {chapter}, Verse {verse}" if chapter and verse else ""
 
@@ -84,6 +158,7 @@ def todays_philosophy() -> dict:
         return {
             "summary": summary,
             "shloka": shloka,
+            "explanation": explanation,
             "chapter": chapter,
             "verse": verse,
             "citation": citation,
